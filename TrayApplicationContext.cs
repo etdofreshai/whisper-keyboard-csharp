@@ -248,6 +248,9 @@ public class TrayApplicationContext : ApplicationContext
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening - VAD threshold: {_config.VadThreshold}, Min duration: {_config.MinAudioDuration}s");
 
+            // Show the indicator in listening mode
+            SafeInvokeIndicator(() => _recordingIndicator.ShowListening());
+
             if (_config.ShowNotifications)
             {
                 _trayIcon.ShowBalloonTip(1000, "Whisper Keyboard", "Now listening for speech", ToolTipIcon.Info);
@@ -271,7 +274,7 @@ public class TrayApplicationContext : ApplicationContext
         _toggleMenuItem.Text = "Start Listening";
         _pauseMenuItem.Enabled = false;
 
-        SafeInvokeIndicator(() => _recordingIndicator.HideIndicator());
+        SafeInvokeIndicator(() => _recordingIndicator.HideCompletely());
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Stopped listening");
 
@@ -290,7 +293,7 @@ public class TrayApplicationContext : ApplicationContext
         _trayIcon.Icon = CreatePausedIcon();
         _pauseMenuItem.Text = "Resume";
 
-        SafeInvokeIndicator(() => _recordingIndicator.HideIndicator());
+        SafeInvokeIndicator(() => _recordingIndicator.HideCompletely());
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Paused");
 
@@ -308,6 +311,9 @@ public class TrayApplicationContext : ApplicationContext
         UpdateStatus("Listening...");
         _trayIcon.Icon = CreateListeningIcon();
         _pauseMenuItem.Text = "Pause";
+
+        // Show indicator again
+        SafeInvokeIndicator(() => _recordingIndicator.ShowListening());
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed listening");
 
@@ -466,8 +472,8 @@ public class TrayApplicationContext : ApplicationContext
                 UpdateStatus("Listening...");
                 _trayIcon.Icon = CreateListeningIcon();
 
-                // Hide indicator after a short delay
-                _ = Task.Delay(500).ContinueWith(_ => SafeInvokeIndicator(() => _recordingIndicator.HideIndicator()));
+                // Fade back to listening mode (low opacity)
+                _ = Task.Delay(500).ContinueWith(_ => SafeInvokeIndicator(() => _recordingIndicator.ShowListening()));
             }
         }
     }

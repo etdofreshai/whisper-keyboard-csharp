@@ -26,6 +26,13 @@ public class RecordingIndicator : Form
     private string _timerText = "";
     private Color _statusColor = Color.FromArgb(150, 180, 150);
 
+    // Opacity settings
+    private const double IdleOpacity = 0.15;        // Very transparent when idle
+    private const double ListeningOpacity = 0.25;   // Slightly visible when listening
+    private const double ActiveOpacity = 0.95;      // Fully visible when recording/processing
+    private double _targetOpacity = ListeningOpacity;
+    private double _currentOpacity = ListeningOpacity;
+
     // Use a BufferedGraphics for smoother rendering
     private BufferedGraphicsContext _graphicsContext;
     private BufferedGraphics? _bufferedGraphics;
@@ -43,6 +50,7 @@ public class RecordingIndicator : Form
         TopMost = true;
         BackColor = Color.FromArgb(30, 30, 30);
         Size = new Size(300, 70);
+        Opacity = ListeningOpacity;
 
         // Critical: Set these before creating the handle
         SetStyle(ControlStyles.OptimizedDoubleBuffer |
@@ -108,6 +116,19 @@ public class RecordingIndicator : Form
         _volumeHistory[_volumeIndex] = _currentVolume;
         _volumeIndex = (_volumeIndex + 1) % MaxVolumeHistory;
 
+        // Smooth opacity transition
+        if (Math.Abs(_currentOpacity - _targetOpacity) > 0.01)
+        {
+            // Ease toward target opacity
+            _currentOpacity += (_targetOpacity - _currentOpacity) * 0.15;
+            Opacity = _currentOpacity;
+        }
+        else if (_currentOpacity != _targetOpacity)
+        {
+            _currentOpacity = _targetOpacity;
+            Opacity = _currentOpacity;
+        }
+
         // Trigger repaint
         Invalidate();
 
@@ -142,6 +163,7 @@ public class RecordingIndicator : Form
         _statusText = "Recording";
         _statusColor = Color.FromArgb(100, 255, 100);
         _timerText = "0.0s";
+        _targetOpacity = ActiveOpacity;
 
         _updateTimer.Start();
         _recordingTimer.Start();
@@ -151,7 +173,7 @@ public class RecordingIndicator : Form
             Show();
         }
         EnsureTopmost();
-        Refresh(); // Force immediate repaint
+        Refresh();
     }
 
     public void ShowListening()
@@ -160,6 +182,7 @@ public class RecordingIndicator : Form
         _statusText = "Listening...";
         _statusColor = Color.FromArgb(150, 180, 150);
         _timerText = "";
+        _targetOpacity = ListeningOpacity;
 
         _recordingTimer.Stop();
         _updateTimer.Start();
@@ -177,6 +200,7 @@ public class RecordingIndicator : Form
         _statusText = "Transcribing...";
         _statusColor = Color.FromArgb(150, 150, 255);
         _timerText = "";
+        _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
         EnsureTopmost();
@@ -189,6 +213,7 @@ public class RecordingIndicator : Form
         _statusText = "Typing...";
         _statusColor = Color.FromArgb(255, 255, 150);
         _timerText = "";
+        _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
         EnsureTopmost();
@@ -197,6 +222,18 @@ public class RecordingIndicator : Form
 
     public void HideIndicator()
     {
+        // Just fade to idle opacity, don't actually hide
+        _targetOpacity = IdleOpacity;
+        _statusText = "Idle";
+        _statusColor = Color.FromArgb(100, 100, 100);
+        _timerText = "";
+        _recordingTimer.Stop();
+        // Keep update timer running for smooth transitions
+    }
+
+    public void HideCompletely()
+    {
+        // Actually hide the indicator (for pause/stop)
         _updateTimer.Stop();
         _recordingTimer.Stop();
         Hide();
