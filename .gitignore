@@ -31,9 +31,6 @@ artifacts/
 # Rider
 .idea/
 
-# VS Code
-.vscode/
-
 # Windows
 Thumbs.db
 ehthumbs.db
