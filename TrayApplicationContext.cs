@@ -56,6 +56,7 @@ public class TrayApplicationContext : ApplicationContext
                 PauseListening();
         };
         _recordingIndicator.OnStopClicked = () => StopListening();
+        _recordingIndicator.OnSettingsClicked = () => Settings_Click(this, EventArgs.Empty);
 
         // Setup hotkey window
         _hotkeyWindow.HotkeyPressed += HotkeyWindow_HotkeyPressed;

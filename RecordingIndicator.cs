@@ -16,13 +16,15 @@ public class RecordingIndicator : Form
     // Button events
     public Action? OnPauseClicked;
     public Action? OnStopClicked;
+    public Action? OnSettingsClicked;
 
     // Button state
-    private enum HoverButton { None, Pause, Stop }
+    private enum HoverButton { None, Pause, Stop, Settings }
     private HoverButton _hoverButton = HoverButton.None;
     private bool _isPausedState;
     private Rectangle _pauseButtonRect;
     private Rectangle _stopButtonRect;
+    private Rectangle _settingsButtonRect;
 
     // Windows API for ensuring topmost
     [DllImport("user32.dll")]
@@ -61,12 +63,13 @@ public class RecordingIndicator : Form
         ShowInTaskbar = false;
         TopMost = true;
         BackColor = Color.FromArgb(30, 30, 30);
-        Size = new Size(360, 70);
+        Size = new Size(394, 70);
         Opacity = ListeningOpacity;
 
         // Setup button rectangles (right side of window)
-        _pauseButtonRect = new Rectangle(Width - 70, 18, 28, 28);
-        _stopButtonRect = new Rectangle(Width - 38, 18, 28, 28);
+        _pauseButtonRect = new Rectangle(Width - 102, 18, 28, 28);
+        _stopButtonRect = new Rectangle(Width - 70, 18, 28, 28);
+        _settingsButtonRect = new Rectangle(Width - 38, 18, 28, 28);
 
         // Critical: Set these before creating the handle
         SetStyle(ControlStyles.OptimizedDoubleBuffer |
@@ -300,6 +303,10 @@ public class RecordingIndicator : Form
         {
             OnStopClicked?.Invoke();
         }
+        else if (_settingsButtonRect.Contains(e.Location))
+        {
+            OnSettingsClicked?.Invoke();
+        }
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -314,6 +321,10 @@ public class RecordingIndicator : Form
         else if (_stopButtonRect.Contains(e.Location))
         {
             newHover = HoverButton.Stop;
+        }
+        else if (_settingsButtonRect.Contains(e.Location))
+        {
+            newHover = HoverButton.Settings;
         }
 
         if (newHover != _hoverButton)
@@ -442,6 +453,35 @@ public class RecordingIndicator : Form
         var scx = _stopButtonRect.X + _stopButtonRect.Width / 2;
         var scy = _stopButtonRect.Y + _stopButtonRect.Height / 2;
         g.FillRectangle(stopBrush, scx - 5, scy - 5, 10, 10);
+
+        // Draw settings button
+        var settingsBgColor = _hoverButton == HoverButton.Settings
+            ? Color.FromArgb(70, 70, 70)
+            : Color.FromArgb(50, 50, 50);
+        using (var settingsBgBrush = new SolidBrush(settingsBgColor))
+        {
+            g.FillEllipse(settingsBgBrush, _settingsButtonRect);
+        }
+
+        // Draw settings gear icon
+        var gearColor = Color.FromArgb(180, 180, 180);
+        using var gearPen = new Pen(gearColor, 1.5f);
+        var gcx = _settingsButtonRect.X + _settingsButtonRect.Width / 2;
+        var gcy = _settingsButtonRect.Y + _settingsButtonRect.Height / 2;
+
+        // Draw center circle
+        g.DrawEllipse(gearPen, gcx - 3, gcy - 3, 6, 6);
+
+        // Draw gear teeth (6 lines radiating out)
+        for (int i = 0; i < 6; i++)
+        {
+            double angle = i * Math.PI / 3; // 60 degrees apart
+            int x1 = gcx + (int)(5 * Math.Cos(angle));
+            int y1 = gcy + (int)(5 * Math.Sin(angle));
+            int x2 = gcx + (int)(8 * Math.Cos(angle));
+            int y2 = gcy + (int)(8 * Math.Sin(angle));
+            g.DrawLine(gearPen, x1, y1, x2, y2);
+        }
     }
 
     private void DrawWaveform(Graphics g, Rectangle bounds)
