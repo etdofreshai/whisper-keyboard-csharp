@@ -47,6 +47,16 @@ public class TrayApplicationContext : ApplicationContext
         _audioProcessor.VolumeChanged += AudioProcessor_VolumeChanged;
         _audioProcessor.SpeechDetected += AudioProcessor_SpeechDetected;
 
+        // Setup recording indicator button events
+        _recordingIndicator.OnPauseClicked = () =>
+        {
+            if (_isPaused)
+                ResumeListening();
+            else
+                PauseListening();
+        };
+        _recordingIndicator.OnStopClicked = () => StopListening();
+
         // Setup hotkey window
         _hotkeyWindow.HotkeyPressed += HotkeyWindow_HotkeyPressed;
 
@@ -293,7 +303,11 @@ public class TrayApplicationContext : ApplicationContext
         _trayIcon.Icon = CreatePausedIcon();
         _pauseMenuItem.Text = "Resume";
 
-        SafeInvokeIndicator(() => _recordingIndicator.HideCompletely());
+        SafeInvokeIndicator(() =>
+        {
+            _recordingIndicator.SetPauseState(true);
+            _recordingIndicator.ShowPaused();
+        });
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Paused");
 
@@ -313,7 +327,11 @@ public class TrayApplicationContext : ApplicationContext
         _pauseMenuItem.Text = "Pause";
 
         // Show indicator again
-        SafeInvokeIndicator(() => _recordingIndicator.ShowListening());
+        SafeInvokeIndicator(() =>
+        {
+            _recordingIndicator.SetPauseState(false);
+            _recordingIndicator.ShowListening();
+        });
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed listening");
 

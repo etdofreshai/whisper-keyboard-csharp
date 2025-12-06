@@ -13,6 +13,17 @@ public class RecordingIndicator : Form
     private const int MaxVolumeHistory = 50;
     private double _currentVolume;
 
+    // Button events
+    public Action? OnPauseClicked;
+    public Action? OnStopClicked;
+
+    // Button state
+    private enum HoverButton { None, Pause, Stop }
+    private HoverButton _hoverButton = HoverButton.None;
+    private bool _isPausedState;
+    private Rectangle _pauseButtonRect;
+    private Rectangle _stopButtonRect;
+
     // Windows API for ensuring topmost
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -29,6 +40,7 @@ public class RecordingIndicator : Form
     // Opacity settings
     private const double IdleOpacity = 0.15;        // Very transparent when idle
     private const double ListeningOpacity = 0.25;   // Slightly visible when listening
+    private const double PausedOpacity = 0.30;      // Visible when paused
     private const double ActiveOpacity = 0.95;      // Fully visible when recording/processing
     private double _targetOpacity = ListeningOpacity;
     private double _currentOpacity = ListeningOpacity;
@@ -49,8 +61,12 @@ public class RecordingIndicator : Form
         ShowInTaskbar = false;
         TopMost = true;
         BackColor = Color.FromArgb(30, 30, 30);
-        Size = new Size(300, 70);
+        Size = new Size(360, 70);
         Opacity = ListeningOpacity;
+
+        // Setup button rectangles (right side of window)
+        _pauseButtonRect = new Rectangle(Width - 70, 18, 28, 28);
+        _stopButtonRect = new Rectangle(Width - 38, 18, 28, 28);
 
         // Critical: Set these before creating the handle
         SetStyle(ControlStyles.OptimizedDoubleBuffer |
@@ -220,6 +236,32 @@ public class RecordingIndicator : Form
         Refresh();
     }
 
+    public void ShowPaused()
+    {
+        _isRecording = false;
+        _isPausedState = true;
+        _statusText = "Paused";
+        _statusColor = Color.FromArgb(255, 180, 100); // Orange
+        _timerText = "";
+        _targetOpacity = PausedOpacity;
+
+        _recordingTimer.Stop();
+        _updateTimer.Start(); // Keep running for smooth transitions
+
+        if (!Visible)
+        {
+            Show();
+        }
+        EnsureTopmost();
+        Refresh();
+    }
+
+    public void SetPauseState(bool isPaused)
+    {
+        _isPausedState = isPaused;
+        Invalidate(); // Redraw to update button icon
+    }
+
     public void HideIndicator()
     {
         // Just fade to idle opacity, don't actually hide
@@ -244,6 +286,54 @@ public class RecordingIndicator : Form
         base.OnShown(e);
         EnsureTopmost();
         Refresh();
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+
+        if (_pauseButtonRect.Contains(e.Location))
+        {
+            OnPauseClicked?.Invoke();
+        }
+        else if (_stopButtonRect.Contains(e.Location))
+        {
+            OnStopClicked?.Invoke();
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+
+        var newHover = HoverButton.None;
+        if (_pauseButtonRect.Contains(e.Location))
+        {
+            newHover = HoverButton.Pause;
+        }
+        else if (_stopButtonRect.Contains(e.Location))
+        {
+            newHover = HoverButton.Stop;
+        }
+
+        if (newHover != _hoverButton)
+        {
+            _hoverButton = newHover;
+            Cursor = _hoverButton != HoverButton.None ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+        }
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+
+        if (_hoverButton != HoverButton.None)
+        {
+            _hoverButton = HoverButton.None;
+            Cursor = Cursors.Default;
+            Invalidate();
+        }
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -283,6 +373,9 @@ public class RecordingIndicator : Form
             g.DrawString(_timerText, timerFont, timerBrush, 140, 35);
         }
 
+        // Draw buttons
+        DrawButtons(g);
+
         // Draw border
         using var borderPen = new Pen(Color.FromArgb(60, 100, 60), 1);
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
@@ -294,6 +387,61 @@ public class RecordingIndicator : Form
         path.AddArc(rect.X, rect.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
         path.CloseAllFigures();
         g.DrawPath(borderPen, path);
+    }
+
+    private void DrawButtons(Graphics g)
+    {
+        // Draw pause/resume button
+        var pauseBgColor = _hoverButton == HoverButton.Pause
+            ? Color.FromArgb(70, 70, 70)
+            : Color.FromArgb(50, 50, 50);
+        using (var pauseBgBrush = new SolidBrush(pauseBgColor))
+        {
+            g.FillEllipse(pauseBgBrush, _pauseButtonRect);
+        }
+
+        // Draw pause icon (▐▐) or resume icon (▶)
+        if (_isPausedState)
+        {
+            // Draw play/resume triangle
+            var playColor = Color.FromArgb(100, 255, 100);
+            using var playBrush = new SolidBrush(playColor);
+            var cx = _pauseButtonRect.X + _pauseButtonRect.Width / 2;
+            var cy = _pauseButtonRect.Y + _pauseButtonRect.Height / 2;
+            var points = new Point[]
+            {
+                new Point(cx - 4, cy - 6),
+                new Point(cx - 4, cy + 6),
+                new Point(cx + 6, cy)
+            };
+            g.FillPolygon(playBrush, points);
+        }
+        else
+        {
+            // Draw pause bars
+            var pauseColor = Color.FromArgb(255, 200, 100);
+            using var pauseBrush = new SolidBrush(pauseColor);
+            var cx = _pauseButtonRect.X + _pauseButtonRect.Width / 2;
+            var cy = _pauseButtonRect.Y + _pauseButtonRect.Height / 2;
+            g.FillRectangle(pauseBrush, cx - 6, cy - 6, 4, 12);
+            g.FillRectangle(pauseBrush, cx + 2, cy - 6, 4, 12);
+        }
+
+        // Draw stop button
+        var stopBgColor = _hoverButton == HoverButton.Stop
+            ? Color.FromArgb(70, 70, 70)
+            : Color.FromArgb(50, 50, 50);
+        using (var stopBgBrush = new SolidBrush(stopBgColor))
+        {
+            g.FillEllipse(stopBgBrush, _stopButtonRect);
+        }
+
+        // Draw stop square
+        var stopColor = Color.FromArgb(255, 100, 100);
+        using var stopBrush = new SolidBrush(stopColor);
+        var scx = _stopButtonRect.X + _stopButtonRect.Width / 2;
+        var scy = _stopButtonRect.Y + _stopButtonRect.Height / 2;
+        g.FillRectangle(stopBrush, scx - 5, scy - 5, 10, 10);
     }
 
     private void DrawWaveform(Graphics g, Rectangle bounds)
