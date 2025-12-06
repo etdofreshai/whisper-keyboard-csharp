@@ -142,7 +142,7 @@ public class TextTyper
 
         // Check for exit word at end
         bool shouldEnter = false;
-        if (_config.ExitWords.Count > 0)
+        if (_config.ExitWordsEnabled && _config.ExitWords.Count > 0)
         {
             // Get the last word (handle potential trailing punctuation)
             var words = text.Split(' ');
