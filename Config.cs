@@ -33,6 +33,7 @@ public class Config
     public bool CapitalizeSentences { get; set; } = true;
     public bool PasteMode { get; set; } = true;
     public bool AutoEnter { get; set; } = false;
+    public List<string> ExitWords { get; set; } = new List<string> { "over", "enter", "submit" };
 
     // Hotkey Settings
     public string ToggleRecordingHotkey { get; set; } = "Ctrl+Shift+R";

@@ -23,6 +23,7 @@ public class SettingsForm : Form
     private CheckBox _addPunctuationCheckBox = null!;
     private CheckBox _capitalizeSentencesCheckBox = null!;
     private CheckBox _autoEnterCheckBox = null!;
+    private TextBox _exitWordsTextBox = null!;
 
     // Hotkeys tab controls
     private TextBox _toggleRecordingHotkeyTextBox = null!;
@@ -288,6 +289,25 @@ public class SettingsForm : Form
             AutoSize = true
         };
         tab.Controls.Add(_autoEnterCheckBox);
+        y += 40;
+
+        // Exit words
+        tab.Controls.Add(new Label { Text = "Exit Words (comma-separated):", Location = new Point(15, y), AutoSize = true });
+        y += 20;
+        _exitWordsTextBox = new TextBox
+        {
+            Location = new Point(15, y),
+            Size = new Size(380, 25)
+        };
+        tab.Controls.Add(_exitWordsTextBox);
+        y += 25;
+        tab.Controls.Add(new Label
+        {
+            Text = "Say these words at the end to press Enter (e.g., \"over, enter, submit\")",
+            Location = new Point(15, y),
+            Size = new Size(380, 20),
+            ForeColor = Color.Gray
+        });
 
         _tabControl.TabPages.Add(tab);
     }
@@ -397,6 +417,7 @@ public class SettingsForm : Form
         _addPunctuationCheckBox.Checked = _config.AddPunctuation;
         _capitalizeSentencesCheckBox.Checked = _config.CapitalizeSentences;
         _autoEnterCheckBox.Checked = _config.AutoEnter;
+        _exitWordsTextBox.Text = string.Join(", ", _config.ExitWords);
 
         // Hotkeys
         _toggleRecordingHotkeyTextBox.Text = _config.ToggleRecordingHotkey;
@@ -427,6 +448,9 @@ public class SettingsForm : Form
         _config.AddPunctuation = _addPunctuationCheckBox.Checked;
         _config.CapitalizeSentences = _capitalizeSentencesCheckBox.Checked;
         _config.AutoEnter = _autoEnterCheckBox.Checked;
+        _config.ExitWords = _exitWordsTextBox.Text
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
 
         // Hotkeys
         _config.ToggleRecordingHotkey = _toggleRecordingHotkeyTextBox.Text;

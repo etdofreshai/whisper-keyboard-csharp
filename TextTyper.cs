@@ -83,36 +83,41 @@ public class TextTyper
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] TypeTextAsync called with: \"{text}\"");
 
         // Process and clean text
-        text = ProcessText(text);
+        var (processedText, shouldEnter) = ProcessText(text);
+        text = processedText;
 
-        if (string.IsNullOrEmpty(text)) return;
-
-        // Check for duplicate text (within 2 seconds)
-        if (text == _lastTypedText && (DateTime.Now - _lastTypeTime).TotalSeconds < 2)
+        // Check for duplicate text (within 2 seconds) - but allow if only exit word was spoken
+        if (!string.IsNullOrEmpty(text) && text == _lastTypedText && (DateTime.Now - _lastTypeTime).TotalSeconds < 2)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping duplicate text");
             return;
         }
 
-        _lastTypedText = text;
-        _lastTypeTime = DateTime.Now;
+        if (!string.IsNullOrEmpty(text))
+        {
+            _lastTypedText = text;
+            _lastTypeTime = DateTime.Now;
+        }
 
         try
         {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting to type (PasteMode={_config.PasteMode})...");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Starting to type (PasteMode={_config.PasteMode}, shouldEnter={shouldEnter})...");
 
             lock (_typingLock)
             {
-                if (_config.PasteMode)
+                if (!string.IsNullOrEmpty(text))
                 {
-                    PasteText(text);
-                }
-                else
-                {
-                    TypeCharacters(text);
+                    if (_config.PasteMode)
+                    {
+                        PasteText(text);
+                    }
+                    else
+                    {
+                        TypeCharacters(text);
+                    }
                 }
 
-                if (_config.AutoEnter)
+                if (_config.AutoEnter || shouldEnter)
                 {
                     SendKey(VK_RETURN);
                 }
@@ -129,19 +134,42 @@ public class TextTyper
         await Task.CompletedTask;
     }
 
-    private string ProcessText(string text)
+    private (string text, bool shouldEnter) ProcessText(string text)
     {
         // Clean whitespace
         text = text.Trim();
         text = Regex.Replace(text, @"\s+", " ");
 
-        // Check for "enter" or "over" command at end
+        // Check for exit word at end
         bool shouldEnter = false;
-        if (text.EndsWith(" enter", StringComparison.OrdinalIgnoreCase) ||
-            text.EndsWith(" over", StringComparison.OrdinalIgnoreCase))
+        if (_config.ExitWords.Count > 0)
         {
-            text = text[..^6].Trim();
-            shouldEnter = true;
+            // Get the last word (handle potential trailing punctuation)
+            var words = text.Split(' ');
+            if (words.Length > 0)
+            {
+                var lastWord = words[^1];
+                // Strip trailing punctuation for matching
+                var lastWordClean = lastWord.TrimEnd('.', '!', '?', ',', ';', ':');
+
+                foreach (var exitWord in _config.ExitWords)
+                {
+                    if (lastWordClean.Equals(exitWord, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Remove the last word (including any punctuation attached to it)
+                        if (words.Length == 1)
+                        {
+                            text = "";
+                        }
+                        else
+                        {
+                            text = string.Join(" ", words[..^1]).Trim();
+                        }
+                        shouldEnter = true;
+                        break;
+                    }
+                }
+            }
         }
 
         // Add punctuation if enabled and text doesn't end with punctuation
@@ -167,7 +195,7 @@ public class TextTyper
         // Add space after punctuation if missing
         text = Regex.Replace(text, @"([.!?,;:])([A-Za-z])", "$1 $2");
 
-        return text;
+        return (text, shouldEnter);
     }
 
     private void TypeCharacters(string text)

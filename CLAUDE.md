@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+**Note**: The app typically runs in the background as a system tray application. You may need to kill the running process before rebuilding:
+
 ```bash
-dotnet build              # Build the project
-dotnet run                # Run the application
-dotnet publish -c Release # Create release build
+# Kill running instance - use PowerShell (taskkill may fail from Git Bash)
+powershell.exe -NoProfile -Command "Stop-Process -Name WhisperKeyboard -Force -ErrorAction SilentlyContinue"
+
+dotnet build                          # Build the project
+dotnet run                            # Run the application
+dotnet publish -c Release             # Create release build
 ```
+
+**Troubleshooting build errors**: If you see "file is locked by WhisperKeyboard" errors during build, the app is still running. The `taskkill` command from Git Bash often fails due to path escaping issues. Use the PowerShell command above, or manually close the app from the system tray (right-click tray icon → Quit).
 
 ## Architecture
 
