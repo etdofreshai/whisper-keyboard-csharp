@@ -4,6 +4,7 @@ public class SettingsForm : Form
 {
     private readonly Config _config;
     private readonly AudioProcessor _audioProcessor;
+    private readonly TranscriptionHistory? _transcriptionHistory;
     private TabControl _tabControl = null!;
 
     // Audio tab controls
@@ -35,12 +36,18 @@ public class SettingsForm : Form
     private CheckBox _startMinimizedCheckBox = null!;
     private CheckBox _startWithWindowsCheckBox = null!;
 
+    // History tab controls
+    private Panel _historyEntriesPanel = null!;
+    private Label _historyEmptyLabel = null!;
+    private Button _historyClearAllButton = null!;
+
     public event EventHandler? SettingsChanged;
 
-    public SettingsForm(Config config, AudioProcessor audioProcessor)
+    public SettingsForm(Config config, AudioProcessor audioProcessor, TranscriptionHistory? transcriptionHistory = null)
     {
         _config = config;
         _audioProcessor = audioProcessor;
+        _transcriptionHistory = transcriptionHistory;
         InitializeComponent();
         LoadSettings();
     }
@@ -65,6 +72,7 @@ public class SettingsForm : Form
         CreateTypingTab();
         CreateHotkeysTab();
         CreateGeneralTab();
+        CreateHistoryTab();
 
         Controls.Add(_tabControl);
 
@@ -400,6 +408,193 @@ public class SettingsForm : Form
         });
 
         _tabControl.TabPages.Add(tab);
+    }
+
+    private void CreateHistoryTab()
+    {
+        var tab = new TabPage("History");
+
+        // Scrollable panel for entries
+        _historyEntriesPanel = new Panel
+        {
+            Location = new Point(15, 15),
+            Size = new Size(395, 250),
+            AutoScroll = true,
+            BackColor = Color.FromArgb(240, 240, 240),
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        tab.Controls.Add(_historyEntriesPanel);
+
+        // Empty state label
+        _historyEmptyLabel = new Label
+        {
+            Text = "No transcriptions yet",
+            ForeColor = Color.Gray,
+            Font = new Font("Segoe UI", 10),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Dock = DockStyle.Fill,
+            Visible = false
+        };
+        _historyEntriesPanel.Controls.Add(_historyEmptyLabel);
+
+        // Clear All button
+        _historyClearAllButton = new Button
+        {
+            Text = "Clear All",
+            Location = new Point(15, 275),
+            Size = new Size(85, 28)
+        };
+        _historyClearAllButton.Click += HistoryClearAllButton_Click;
+        tab.Controls.Add(_historyClearAllButton);
+
+        // Info label
+        tab.Controls.Add(new Label
+        {
+            Text = "Double-click an entry to copy it to clipboard",
+            Location = new Point(110, 280),
+            AutoSize = true,
+            ForeColor = Color.Gray
+        });
+
+        _tabControl.TabPages.Add(tab);
+
+        // Load history entries
+        LoadHistoryEntries();
+    }
+
+    private void LoadHistoryEntries()
+    {
+        _historyEntriesPanel.Controls.Clear();
+
+        if (_transcriptionHistory == null || _transcriptionHistory.Count == 0)
+        {
+            _historyEmptyLabel.Visible = true;
+            _historyEntriesPanel.Controls.Add(_historyEmptyLabel);
+            _historyClearAllButton.Enabled = false;
+            return;
+        }
+
+        _historyEmptyLabel.Visible = false;
+        _historyClearAllButton.Enabled = true;
+
+        var entries = _transcriptionHistory.GetEntries();
+        int yOffset = 5;
+
+        foreach (var entry in entries)
+        {
+            var entryPanel = CreateHistoryEntryPanel(entry, yOffset);
+            _historyEntriesPanel.Controls.Add(entryPanel);
+            yOffset += 50;
+        }
+    }
+
+    private Panel CreateHistoryEntryPanel(HistoryEntry entry, int yOffset)
+    {
+        var panel = new Panel
+        {
+            Location = new Point(5, yOffset),
+            Size = new Size(365, 45),
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+
+        // Timestamp label
+        var timeLabel = new Label
+        {
+            Text = entry.FormattedTime,
+            Location = new Point(8, 4),
+            Size = new Size(55, 16),
+            ForeColor = Color.Gray,
+            Font = new Font("Segoe UI", 8)
+        };
+        panel.Controls.Add(timeLabel);
+
+        // Preview text label
+        var textLabel = new Label
+        {
+            Text = entry.PreviewText,
+            Location = new Point(8, 20),
+            Size = new Size(280, 20),
+            ForeColor = Color.Black,
+            Font = new Font("Segoe UI", 9)
+        };
+        // Show full text in tooltip
+        var tooltip = new ToolTip();
+        tooltip.SetToolTip(textLabel, entry.FullText);
+        panel.Controls.Add(textLabel);
+
+        // Copy button
+        var copyButton = new Button
+        {
+            Text = "Copy",
+            Location = new Point(295, 10),
+            Size = new Size(60, 24),
+            Tag = entry
+        };
+        copyButton.Click += HistoryCopyButton_Click;
+        panel.Controls.Add(copyButton);
+
+        // Double-click to copy
+        panel.DoubleClick += (s, e) => CopyHistoryEntry(entry, null);
+        textLabel.DoubleClick += (s, e) => CopyHistoryEntry(entry, null);
+
+        return panel;
+    }
+
+    private void HistoryCopyButton_Click(object? sender, EventArgs e)
+    {
+        if (sender is Button button && button.Tag is HistoryEntry entry)
+        {
+            CopyHistoryEntry(entry, button);
+        }
+    }
+
+    private void CopyHistoryEntry(HistoryEntry entry, Button? button)
+    {
+        try
+        {
+            Clipboard.SetText(entry.FullText);
+
+            if (button != null)
+            {
+                var originalText = button.Text;
+                button.Text = "Copied!";
+                button.Enabled = false;
+
+                var timer = new System.Windows.Forms.Timer { Interval = 800 };
+                timer.Tick += (s, e) =>
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    if (!button.IsDisposed)
+                    {
+                        button.Text = originalText;
+                        button.Enabled = true;
+                    }
+                };
+                timer.Start();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to copy: {ex.Message}", "Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void HistoryClearAllButton_Click(object? sender, EventArgs e)
+    {
+        var result = MessageBox.Show(
+            "Are you sure you want to clear all transcription history?",
+            "Clear History",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (result == DialogResult.Yes)
+        {
+            _transcriptionHistory?.Clear();
+            LoadHistoryEntries();
+        }
     }
 
     private void LoadSettings()

@@ -9,6 +9,7 @@ public class TrayApplicationContext : ApplicationContext
     private readonly TextTyper _textTyper;
     private readonly HotkeyWindow _hotkeyWindow;
     private readonly RecordingIndicator _recordingIndicator;
+    private readonly TranscriptionHistory _transcriptionHistory;
     private GlobalHotkey? _globalHotkey;
 
     private bool _isListening;
@@ -29,6 +30,7 @@ public class TrayApplicationContext : ApplicationContext
         _textTyper = new TextTyper(_config);
         _hotkeyWindow = new HotkeyWindow();
         _recordingIndicator = new RecordingIndicator();
+        _transcriptionHistory = new TranscriptionHistory();
 
         // Create tray icon
         _trayIcon = new NotifyIcon
@@ -442,6 +444,9 @@ public class TrayApplicationContext : ApplicationContext
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribed: \"{result.Text}\"");
 
+                // Save to history
+                _transcriptionHistory.AddEntry(result);
+
                 UpdateStatus("Typing...");
 
                 // Update indicator to show typing (safely)
@@ -571,7 +576,7 @@ public class TrayApplicationContext : ApplicationContext
 
     private void Settings_Click(object? sender, EventArgs e)
     {
-        using var settingsForm = new SettingsForm(_config, _audioProcessor);
+        using var settingsForm = new SettingsForm(_config, _audioProcessor, _transcriptionHistory);
         settingsForm.SettingsChanged += (s, args) =>
         {
             // Reload settings if needed
