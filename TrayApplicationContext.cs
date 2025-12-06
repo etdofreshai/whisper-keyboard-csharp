@@ -261,8 +261,12 @@ public class TrayApplicationContext : ApplicationContext
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening - VAD threshold: {_config.VadThreshold}, Min duration: {_config.MinAudioDuration}s");
 
-            // Show the indicator in listening mode
-            SafeInvokeIndicator(() => _recordingIndicator.ShowListening());
+            // Show the indicator in listening mode (reset position on fresh start)
+            SafeInvokeIndicator(() =>
+            {
+                _recordingIndicator.ResetToDefaultPosition();
+                _recordingIndicator.ShowListening();
+            });
 
             if (_config.ShowNotifications)
             {

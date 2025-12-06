@@ -12,6 +12,7 @@ powershell.exe -NoProfile -Command "Stop-Process -Name WhisperKeyboard -Force -E
 
 dotnet build                          # Build the project
 dotnet run                            # Run the application
+dotnet build && dotnet run            # Build and run (use this after making changes)
 dotnet publish -c Release             # Create release build
 ```
 

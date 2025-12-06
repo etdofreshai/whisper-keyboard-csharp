@@ -129,7 +129,7 @@ public class RecordingIndicator : Form
         return new Region(path);
     }
 
-    private void ResetToDefaultPosition()
+    public void ResetToDefaultPosition()
     {
         var screen = Screen.PrimaryScreen!.WorkingArea;
         Location = new Point(
@@ -214,9 +214,6 @@ public class RecordingIndicator : Form
 
         _recordingTimer.Stop();
         _updateTimer.Start();
-
-        // Reset position to default when starting a new listening session
-        ResetToDefaultPosition();
 
         if (!Visible)
         {
