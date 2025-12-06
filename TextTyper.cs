@@ -12,7 +12,7 @@ public class TextTyper
 
     // Windows API imports for keyboard simulation
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
 
     [DllImport("user32.dll")]
     private static extern short VkKeyScan(char ch);
@@ -30,7 +30,7 @@ public class TextTyper
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
     {
-        public uint type;
+        public int type;
         public INPUTUNION u;
     }
 
@@ -38,6 +38,8 @@ public class TextTyper
     private struct INPUTUNION
     {
         [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -48,6 +50,25 @@ public class TextTyper
         public uint dwFlags;
         public uint time;
         public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
     }
 
     public TextTyper(Config config)
@@ -184,8 +205,8 @@ public class TextTyper
 
     private void SendKey(byte vk)
     {
-        keybd_event(vk, 0, 0, UIntPtr.Zero);
-        keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        keybd_event(vk, 0, 0, IntPtr.Zero);
+        keybd_event(vk, 0, KEYEVENTF_KEYUP, IntPtr.Zero);
     }
 
     private void PasteText(string text)
@@ -222,10 +243,10 @@ public class TextTyper
 
                 // Send Ctrl+V
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Sending Ctrl+V...");
-                keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-                keybd_event(0x56, 0, 0, UIntPtr.Zero); // V key
-                keybd_event(0x56, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                keybd_event(VK_CONTROL, 0, 0, IntPtr.Zero);
+                keybd_event(0x56, 0, 0, IntPtr.Zero); // V key
+                keybd_event(0x56, 0, KEYEVENTF_KEYUP, IntPtr.Zero);
+                keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, IntPtr.Zero);
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Ctrl+V sent");
 
                 // Small delay after paste
