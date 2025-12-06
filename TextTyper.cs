@@ -172,11 +172,50 @@ public class TextTyper
 
     private void TypeCharacters(string text)
     {
-        foreach (char c in text)
+        if (_config.TypingSpeed <= 0.001)
         {
-            SendCharacter(c);
-            Thread.Sleep((int)(_config.TypingSpeed * 1000));
+            // Batch mode: send all characters in one SendInput call (fastest)
+            SendAllCharacters(text);
         }
+        else
+        {
+            // Legacy mode: send one character at a time with delay
+            foreach (char c in text)
+            {
+                SendCharacter(c);
+                Thread.Sleep((int)(_config.TypingSpeed * 1000));
+            }
+        }
+    }
+
+    private void SendAllCharacters(string text)
+    {
+        // Each character needs 2 inputs (key down + key up)
+        var inputs = new INPUT[text.Length * 2];
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            int baseIndex = i * 2;
+
+            // Key down
+            inputs[baseIndex].type = 1; // INPUT_KEYBOARD
+            inputs[baseIndex].u.ki.wVk = 0;
+            inputs[baseIndex].u.ki.wScan = c;
+            inputs[baseIndex].u.ki.dwFlags = KEYEVENTF_UNICODE;
+            inputs[baseIndex].u.ki.time = 0;
+            inputs[baseIndex].u.ki.dwExtraInfo = IntPtr.Zero;
+
+            // Key up
+            inputs[baseIndex + 1].type = 1;
+            inputs[baseIndex + 1].u.ki.wVk = 0;
+            inputs[baseIndex + 1].u.ki.wScan = c;
+            inputs[baseIndex + 1].u.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            inputs[baseIndex + 1].u.ki.time = 0;
+            inputs[baseIndex + 1].u.ki.dwExtraInfo = IntPtr.Zero;
+        }
+
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
     }
 
     private void SendCharacter(char c)
