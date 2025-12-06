@@ -28,10 +28,10 @@ public class Config
     public string Language { get; set; } = "en";
 
     // Typing Settings
-    public double TypingSpeed { get; set; } = 0.02;
+    public double TypingSpeed { get; set; } = 0.001;
     public bool AddPunctuation { get; set; } = true;
     public bool CapitalizeSentences { get; set; } = true;
-    public bool PasteMode { get; set; } = true;
+    public bool PasteMode { get; set; } = false;
     public bool AutoEnter { get; set; } = false;
     public bool ExitWordsEnabled { get; set; } = true;
     public List<string> ExitWords { get; set; } = new List<string> { "over", "enter", "submit" };
