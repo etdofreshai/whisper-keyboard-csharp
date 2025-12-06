@@ -26,6 +26,10 @@ public class RecordingIndicator : Form
     private Rectangle _stopButtonRect;
     private Rectangle _settingsButtonRect;
 
+    // Drag state
+    private bool _isDragging;
+    private Point _dragStartPoint;
+
     // Windows API for ensuring topmost
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -79,11 +83,7 @@ public class RecordingIndicator : Form
         UpdateStyles();
 
         // Position at bottom center of primary screen
-        var screen = Screen.PrimaryScreen!.WorkingArea;
-        Location = new Point(
-            screen.Left + (screen.Width - Width) / 2,
-            screen.Bottom - Height - 40
-        );
+        ResetToDefaultPosition();
 
         // Create rounded region
         Region = CreateRoundedRegion(Width, Height, 12);
@@ -127,6 +127,15 @@ public class RecordingIndicator : Form
         path.AddArc(0, height - radius * 2, radius * 2, radius * 2, 90, 90);
         path.CloseAllFigures();
         return new Region(path);
+    }
+
+    private void ResetToDefaultPosition()
+    {
+        var screen = Screen.PrimaryScreen!.WorkingArea;
+        Location = new Point(
+            screen.Left + (screen.Width - Width) / 2,
+            screen.Bottom - Height - 40
+        );
     }
 
     private void UpdateTimer_Tick(object? sender, EventArgs e)
@@ -205,6 +214,9 @@ public class RecordingIndicator : Form
 
         _recordingTimer.Stop();
         _updateTimer.Start();
+
+        // Reset position to default when starting a new listening session
+        ResetToDefaultPosition();
 
         if (!Visible)
         {
@@ -291,6 +303,22 @@ public class RecordingIndicator : Form
         Refresh();
     }
 
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+
+        // Start dragging if left-click is not on a button
+        if (e.Button == MouseButtons.Left &&
+            !_pauseButtonRect.Contains(e.Location) &&
+            !_stopButtonRect.Contains(e.Location) &&
+            !_settingsButtonRect.Contains(e.Location))
+        {
+            _isDragging = true;
+            _dragStartPoint = e.Location;
+            Cursor = Cursors.SizeAll;
+        }
+    }
+
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
@@ -312,6 +340,16 @@ public class RecordingIndicator : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+
+        // Handle dragging
+        if (_isDragging)
+        {
+            Location = new Point(
+                Location.X + e.X - _dragStartPoint.X,
+                Location.Y + e.Y - _dragStartPoint.Y
+            );
+            return;
+        }
 
         var newHover = HoverButton.None;
         if (_pauseButtonRect.Contains(e.Location))
@@ -335,6 +373,17 @@ public class RecordingIndicator : Form
         }
     }
 
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+
+        if (_isDragging)
+        {
+            _isDragging = false;
+            Cursor = Cursors.Default;
+        }
+    }
+
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
@@ -344,6 +393,13 @@ public class RecordingIndicator : Form
             _hoverButton = HoverButton.None;
             Cursor = Cursors.Default;
             Invalidate();
+        }
+
+        // Stop dragging if mouse leaves the window
+        if (_isDragging)
+        {
+            _isDragging = false;
+            Cursor = Cursors.Default;
         }
     }
 
