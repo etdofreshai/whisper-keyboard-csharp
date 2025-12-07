@@ -22,7 +22,7 @@ public partial class RecordingIndicator : Window
 
     // Drag state
     private bool _isDragging;
-    private Point _dragStartPoint;
+    private PixelPoint _dragStartScreenPoint;
     private PixelPoint _windowStartPosition;
 
     // Opacity settings
@@ -86,8 +86,11 @@ public partial class RecordingIndicator : Window
             if (pos.X < Width - 120) // Not in button area
             {
                 _isDragging = true;
-                _dragStartPoint = pos;
+                // Store screen position for accurate tracking
+                var screenPos = this.PointToScreen(pos);
+                _dragStartScreenPoint = new PixelPoint((int)screenPos.X, (int)screenPos.Y);
                 _windowStartPosition = Position;
+                e.Pointer.Capture(this);
                 e.Handled = true;
             }
         }
@@ -97,18 +100,24 @@ public partial class RecordingIndicator : Window
     {
         if (_isDragging)
         {
-            var currentPoint = e.GetPosition(this);
-            var delta = currentPoint - _dragStartPoint;
+            var currentPos = e.GetPosition(this);
+            var screenPos = this.PointToScreen(currentPos);
+            var currentScreenPoint = new PixelPoint((int)screenPos.X, (int)screenPos.Y);
+
             Position = new PixelPoint(
-                _windowStartPosition.X + (int)delta.X,
-                _windowStartPosition.Y + (int)delta.Y
+                _windowStartPosition.X + (currentScreenPoint.X - _dragStartScreenPoint.X),
+                _windowStartPosition.Y + (currentScreenPoint.Y - _dragStartScreenPoint.Y)
             );
         }
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        _isDragging = false;
+        if (_isDragging)
+        {
+            _isDragging = false;
+            e.Pointer.Capture(null);
+        }
     }
 
     private void UpdateTimer_Tick(object? sender, EventArgs e)
