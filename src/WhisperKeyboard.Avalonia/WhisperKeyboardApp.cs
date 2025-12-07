@@ -14,7 +14,7 @@ namespace WhisperKeyboard.Avalonia;
 public class WhisperKeyboardApp : IDisposable
 {
     private readonly Config _config;
-    private readonly OpenALAudioCapture _audioCapture;
+    private readonly IAudioCapture _audioCapture;
     private readonly SpeechTranscriber _transcriber;
     private readonly ClipboardTextTyper _textTyper;
     private readonly TranscriptionHistory _history;
@@ -38,7 +38,16 @@ public class WhisperKeyboardApp : IDisposable
         _config = Config.Load();
         _history = new TranscriptionHistory();
         _transcriber = new SpeechTranscriber(_config);
-        _audioCapture = new OpenALAudioCapture(_config);
+        
+        if (OperatingSystem.IsWindows())
+        {
+            _audioCapture = new NAudioCapture(_config);
+        }
+        else
+        {
+            _audioCapture = new OpenALAudioCapture(_config);
+        }
+
         _recordingIndicator = new RecordingIndicator();
         _globalHotkey = new GlobalHotkey();
 

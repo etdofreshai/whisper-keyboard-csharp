@@ -32,6 +32,11 @@ public interface IAudioCapture : IDisposable
     bool IsPaused { get; }
 
     /// <summary>
+    /// Whether speech is currently being detected.
+    /// </summary>
+    bool IsSpeechDetected { get; }
+
+    /// <summary>
     /// Get list of available audio input devices.
     /// </summary>
     List<string> GetAudioDevices();

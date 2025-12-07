@@ -5,10 +5,10 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
-$Project = Join-Path $ProjectDir "WhisperKeyboard.csproj"
+$Project = Join-Path $ProjectDir "src\WhisperKeyboard.Avalonia\WhisperKeyboard.Avalonia.csproj"
 
 Write-Host "==> Killing existing WhisperKeyboard processes..."
-Stop-Process -Name "WhisperKeyboard" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "WhisperKeyboard", "WhisperKeyboard.Avalonia" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
 Write-Host "==> Building..."
@@ -17,5 +17,5 @@ dotnet build $Project -c Release
 Write-Host "==> Publishing..."
 dotnet publish $Project -c Release
 
-$PublishDir = Join-Path $ProjectDir "bin\Release\net8.0-windows\publish"
+$PublishDir = Join-Path $ProjectDir "src\WhisperKeyboard.Avalonia\bin\Release\net8.0\publish"
 Write-Host "==> Publish complete! Output: $PublishDir"

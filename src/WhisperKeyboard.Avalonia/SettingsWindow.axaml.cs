@@ -61,7 +61,21 @@ public partial class SettingsWindow : Window
         // Populate audio devices
         try
         {
-            var devices = OpenALNative.GetCaptureDeviceNames();
+            List<string> devices;
+            if (OperatingSystem.IsWindows())
+            {
+                devices = new List<string>();
+                for (int i = 0; i < NAudio.Wave.WaveInEvent.DeviceCount; i++)
+                {
+                    var capabilities = NAudio.Wave.WaveInEvent.GetCapabilities(i);
+                    devices.Add(capabilities.ProductName);
+                }
+            }
+            else
+            {
+                devices = OpenALNative.GetCaptureDeviceNames();
+            }
+
             DeviceBox.Items.Clear();
             DeviceBox.Items.Add(new ComboBoxItem { Content = "Default", Tag = -1 });
             for (int i = 0; i < devices.Count; i++)

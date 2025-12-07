@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WhisperKeyboard</RootNamespace>
     <AssemblyName>WhisperKeyboard</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

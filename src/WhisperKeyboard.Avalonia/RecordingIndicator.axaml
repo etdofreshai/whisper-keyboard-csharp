@@ -54,7 +54,12 @@
                         ToolTip.Tip="Pause/Resume">
                     <Panel>
                         <!-- Pause Icon (two bars) -->
-                        <StackPanel x:Name="PauseIcon" Orientation="Horizontal" Spacing="3" IsVisible="True">
+                        <StackPanel x:Name="PauseIcon" 
+                                    Orientation="Horizontal" 
+                                    Spacing="3" 
+                                    IsVisible="True"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
                             <Rectangle Width="4" Height="12" Fill="#FFC864" />
                             <Rectangle Width="4" Height="12" Fill="#FFC864" />
                         </StackPanel>

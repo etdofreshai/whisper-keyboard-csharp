@@ -88,7 +88,12 @@ public class ClipboardTextTyper : ITextTyper
 
     private static async Task SimulatePasteAsync()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            WindowsInputSender.SendPaste();
+            await Task.CompletedTask;
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             // Use AppleScript to simulate Cmd+V on macOS
             await RunAppleScriptAsync("tell application \"System Events\" to keystroke \"v\" using command down");
@@ -98,12 +103,16 @@ public class ClipboardTextTyper : ITextTyper
             // Use xdotool on Linux
             await RunProcessAsync("xdotool", "key ctrl+v");
         }
-        // Windows would use SendInput but that's handled by the Windows-specific TextTyper
     }
 
     private static async Task SimulateEnterAsync()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            WindowsInputSender.SendEnter();
+            await Task.CompletedTask;
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             await RunAppleScriptAsync("tell application \"System Events\" to keystroke return");
         }
@@ -115,7 +124,12 @@ public class ClipboardTextTyper : ITextTyper
 
     private static async Task SimulateTypingAsync(string text)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            WindowsInputSender.SendText(text);
+            await Task.CompletedTask;
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             // Escape special characters for AppleScript
             var escapedText = text
