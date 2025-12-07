@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WhisperKeyboard.Avalonia.SettingsWindow"
+        Title="Settings"
+        Width="400"
+        Height="450"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0" Margin="15">
+            <StackPanel Spacing="15">
+
+                <!-- API Settings -->
+                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="OpenAI API" FontWeight="Bold" FontSize="14"/>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="API Key" FontSize="12" Foreground="#888888"/>
+                            <TextBox x:Name="ApiKeyBox" PasswordChar="*" Watermark="sk-..."/>
+                            <TextBlock Text="Or set OPENAI_API_KEY environment variable" FontSize="10" Foreground="#666666"/>
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Language" FontSize="12" Foreground="#888888"/>
+                            <ComboBox x:Name="LanguageBox" SelectedIndex="0">
+                                <ComboBoxItem Content="English" Tag="en"/>
+                                <ComboBoxItem Content="Spanish" Tag="es"/>
+                                <ComboBoxItem Content="French" Tag="fr"/>
+                                <ComboBoxItem Content="German" Tag="de"/>
+                                <ComboBoxItem Content="Auto-detect" Tag="auto"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Audio Settings -->
+                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Audio" FontWeight="Bold" FontSize="14"/>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Input Device" FontSize="12" Foreground="#888888"/>
+                            <ComboBox x:Name="DeviceBox"/>
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Left" Text="Voice Detection Threshold" FontSize="12" Foreground="#888888"/>
+                                <TextBlock x:Name="ThresholdLabel" DockPanel.Dock="Right" Text="500" FontSize="12" Foreground="#888888"/>
+                            </DockPanel>
+                            <Slider x:Name="ThresholdSlider" Minimum="100" Maximum="2000" Value="500"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Text Settings -->
+                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Text Processing" FontWeight="Bold" FontSize="14"/>
+                        <CheckBox x:Name="PunctuationCheck" Content="Add punctuation" IsChecked="True"/>
+                        <CheckBox x:Name="CapitalizeCheck" Content="Capitalize sentences" IsChecked="True"/>
+                        <CheckBox x:Name="ExitWordsCheck" Content="Enable exit words (over, enter, submit)" IsChecked="True"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="15">
+            <Button Content="Cancel" Click="OnCancelClick" Width="80" Margin="5"/>
+            <Button Content="Save" Click="OnSaveClick" Width="80" Margin="5"/>
+        </StackPanel>
+    </Grid>
+</Window>
