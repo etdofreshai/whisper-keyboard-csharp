@@ -26,9 +26,9 @@ public partial class RecordingIndicator : Window
     private PixelPoint _windowStartPosition;
 
     // Opacity settings
-    private const double IdleOpacity = 0.15;
-    private const double ListeningOpacity = 0.25;
-    private const double PausedOpacity = 0.30;
+    private const double IdleOpacity = 0.35;
+    private const double ListeningOpacity = 0.45;
+    private const double PausedOpacity = 0.50;
     private const double ActiveOpacity = 0.95;
     private double _targetOpacity = ListeningOpacity;
 
