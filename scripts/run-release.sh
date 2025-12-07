@@ -10,15 +10,15 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/WhisperKeyboard.Avalonia.csproj"
 
 echo "==> Killing existing WhisperKeyboard processes..."
-pkill -f "WhisperKeyboard.Avalonia" 2>/dev/null || true
-sleep 0.5
+killall WhisperKeyboard.Avalonia 2>/dev/null || true
+sleep 0.3
 
 echo "==> Building..."
-dotnet build "$PROJECT" -c Release
+dotnet build "$PROJECT" -c Release -p:UseSharedCompilation=false
 
 echo "==> Publishing..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    dotnet publish "$PROJECT" -c Release -r osx-arm64 --self-contained false
+    dotnet publish "$PROJECT" -c Release -r osx-arm64 --self-contained false -p:UseSharedCompilation=false
     PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/bin/Release/net8.0/osx-arm64/publish"
     APP_PATH="$PUBLISH_DIR/WhisperKeyboard.Avalonia.app"
 

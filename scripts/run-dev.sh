@@ -10,8 +10,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/WhisperKeyboard.Avalonia.csproj"
 
 echo "==> Killing existing WhisperKeyboard processes..."
-pkill -f "WhisperKeyboard.Avalonia" 2>/dev/null || true
-sleep 0.5
+killall WhisperKeyboard.Avalonia 2>/dev/null || true
+sleep 0.3
 
 echo "==> Building and running..."
 dotnet run --project "$PROJECT" -c Debug &

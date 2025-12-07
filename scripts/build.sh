@@ -14,6 +14,6 @@ pkill -f "WhisperKeyboard.Avalonia" 2>/dev/null || true
 sleep 0.5
 
 echo "==> Building..."
-dotnet build "$PROJECT" -c Release
+dotnet build "$PROJECT" -c Release -p:UseSharedCompilation=false
 
 echo "==> Build complete!"

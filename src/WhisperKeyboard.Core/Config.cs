@@ -45,6 +45,11 @@ public class Config
     public bool ExitWordsEnabled { get; set; } = true;
     public List<string> ExitWords { get; set; } = new List<string> { "over", "enter", "submit" };
 
+    // Hotkey Settings (empty string = disabled)
+    public string ToggleRecordingHotkey { get; set; } = "";
+    public string PauseResumeHotkey { get; set; } = "";
+    public string OpenSettingsHotkey { get; set; } = "";
+
     // General Settings
     public bool ShowNotifications { get; set; } = true;
     public bool StartMinimized { get; set; } = true;

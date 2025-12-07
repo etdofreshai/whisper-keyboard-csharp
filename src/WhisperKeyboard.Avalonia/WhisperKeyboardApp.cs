@@ -19,6 +19,7 @@ public class WhisperKeyboardApp : IDisposable
     private readonly ClipboardTextTyper _textTyper;
     private readonly TranscriptionHistory _history;
     private readonly RecordingIndicator _recordingIndicator;
+    private readonly GlobalHotkey _globalHotkey;
 
     private bool _isListening;
     private bool _isPaused;
@@ -39,6 +40,7 @@ public class WhisperKeyboardApp : IDisposable
         _transcriber = new SpeechTranscriber(_config);
         _audioCapture = new OpenALAudioCapture(_config);
         _recordingIndicator = new RecordingIndicator();
+        _globalHotkey = new GlobalHotkey();
 
         // Get clipboard from the main window (we'll create a hidden one)
         var clipboard = desktop.MainWindow?.Clipboard;
@@ -60,6 +62,9 @@ public class WhisperKeyboardApp : IDisposable
         _recordingIndicator.OnStopClicked += StopListening;
         _recordingIndicator.OnSettingsClicked += ShowSettings;
 
+        // Register global hotkeys
+        RegisterHotkeys();
+
         // Start listening automatically if configured
         if (!string.IsNullOrEmpty(_config.ApiKey))
         {
@@ -68,6 +73,33 @@ public class WhisperKeyboardApp : IDisposable
         else
         {
             Console.WriteLine("API Key not configured. Please set OPENAI_API_KEY or configure in settings.");
+        }
+    }
+
+    private void RegisterHotkeys()
+    {
+        // Toggle recording hotkey
+        if (!string.IsNullOrWhiteSpace(_config.ToggleRecordingHotkey))
+        {
+            _globalHotkey.Register(_config.ToggleRecordingHotkey, ToggleListening);
+        }
+
+        // Pause/Resume hotkey
+        if (!string.IsNullOrWhiteSpace(_config.PauseResumeHotkey))
+        {
+            _globalHotkey.Register(_config.PauseResumeHotkey, () =>
+            {
+                if (_isPaused)
+                    ResumeListening();
+                else if (_isListening)
+                    PauseListening();
+            });
+        }
+
+        // Open settings hotkey
+        if (!string.IsNullOrWhiteSpace(_config.OpenSettingsHotkey))
+        {
+            _globalHotkey.Register(_config.OpenSettingsHotkey, ShowSettings);
         }
     }
 
@@ -370,6 +402,7 @@ public class WhisperKeyboardApp : IDisposable
 
         _transcriptionCts?.Cancel();
         _transcriptionCts?.Dispose();
+        _globalHotkey.Dispose();
         _audioCapture.Stop();
         _audioCapture.Dispose();
         _transcriber.Dispose();

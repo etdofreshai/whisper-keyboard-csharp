@@ -95,6 +95,11 @@ public partial class SettingsWindow : Window
         StartMinimizedCheck.IsChecked = _config.StartMinimized;
         ConfigPathLabel.Text = Config.GetConfigPath();
 
+        // Hotkey settings
+        ToggleRecordingHotkeyBox.Text = _config.ToggleRecordingHotkey;
+        PauseResumeHotkeyBox.Text = _config.PauseResumeHotkey;
+        OpenSettingsHotkeyBox.Text = _config.OpenSettingsHotkey;
+
         // Load history
         LoadHistory();
     }
@@ -147,6 +152,11 @@ public partial class SettingsWindow : Window
         // General settings
         _config.ShowNotifications = ShowNotificationsCheck.IsChecked ?? true;
         _config.StartMinimized = StartMinimizedCheck.IsChecked ?? false;
+
+        // Hotkey settings
+        _config.ToggleRecordingHotkey = ToggleRecordingHotkeyBox.Text?.Trim() ?? "";
+        _config.PauseResumeHotkey = PauseResumeHotkeyBox.Text?.Trim() ?? "";
+        _config.OpenSettingsHotkey = OpenSettingsHotkeyBox.Text?.Trim() ?? "";
 
         _config.Save();
         Close();
