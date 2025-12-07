@@ -17,11 +17,19 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.1" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.1" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.2.1" Condition="'$(Configuration)' == 'Debug'" />
-    <PackageReference Include="OpenTK.Audio.OpenAL" Version="4.8.2" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WhisperKeyboard.Core\WhisperKeyboard.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- macOS: Include Info.plist to hide from Dock -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <None Update="Info.plist" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

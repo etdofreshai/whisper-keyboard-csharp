@@ -1,67 +1,136 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="WhisperKeyboard.Avalonia.SettingsWindow"
-        Title="Settings"
-        Width="400"
-        Height="450"
-        WindowStartupLocation="CenterOwner">
+        Title="Whisper Keyboard Settings"
+        Width="450"
+        Height="420"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
 
     <Grid RowDefinitions="*,Auto">
-        <ScrollViewer Grid.Row="0" Margin="15">
-            <StackPanel Spacing="15">
+        <TabControl Grid.Row="0" Margin="10">
 
-                <!-- API Settings -->
-                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="OpenAI API" FontWeight="Bold" FontSize="14"/>
+            <!-- Audio Tab -->
+            <TabItem Header="Audio">
+                <ScrollViewer Margin="10">
+                    <StackPanel Spacing="15">
                         <StackPanel Spacing="5">
-                            <TextBlock Text="API Key" FontSize="12" Foreground="#888888"/>
-                            <TextBox x:Name="ApiKeyBox" PasswordChar="*" Watermark="sk-..."/>
-                            <TextBlock Text="Or set OPENAI_API_KEY environment variable" FontSize="10" Foreground="#666666"/>
+                            <TextBlock Text="Audio Device" FontSize="12" Foreground="#888888"/>
+                            <ComboBox x:Name="DeviceBox" HorizontalAlignment="Stretch"/>
                         </StackPanel>
-                        <StackPanel Spacing="5">
-                            <TextBlock Text="Language" FontSize="12" Foreground="#888888"/>
-                            <ComboBox x:Name="LanguageBox" SelectedIndex="0">
-                                <ComboBoxItem Content="English" Tag="en"/>
-                                <ComboBoxItem Content="Spanish" Tag="es"/>
-                                <ComboBoxItem Content="French" Tag="fr"/>
-                                <ComboBoxItem Content="German" Tag="de"/>
-                                <ComboBoxItem Content="Auto-detect" Tag="auto"/>
-                            </ComboBox>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
 
-                <!-- Audio Settings -->
-                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="Audio" FontWeight="Bold" FontSize="14"/>
-                        <StackPanel Spacing="5">
-                            <TextBlock Text="Input Device" FontSize="12" Foreground="#888888"/>
-                            <ComboBox x:Name="DeviceBox"/>
-                        </StackPanel>
                         <StackPanel Spacing="5">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Left" Text="Voice Detection Threshold" FontSize="12" Foreground="#888888"/>
                                 <TextBlock x:Name="ThresholdLabel" DockPanel.Dock="Right" Text="500" FontSize="12" Foreground="#888888"/>
                             </DockPanel>
-                            <Slider x:Name="ThresholdSlider" Minimum="100" Maximum="2000" Value="500"/>
+                            <Slider x:Name="ThresholdSlider" Minimum="10" Maximum="5000" Value="500"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Min Audio Duration (seconds)" FontSize="12" Foreground="#888888"/>
+                            <NumericUpDown x:Name="MinAudioDuration" Minimum="0.5" Maximum="10" Value="1" Increment="0.1" FormatString="F1"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Max Silence Duration (seconds)" FontSize="12" Foreground="#888888"/>
+                            <NumericUpDown x:Name="MaxSilenceDuration" Minimum="0.3" Maximum="5" Value="1" Increment="0.1" FormatString="F1"/>
                         </StackPanel>
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </TabItem>
 
-                <!-- Text Settings -->
-                <Border Background="#2d2d2d" Padding="15" CornerRadius="8">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="Text Processing" FontWeight="Bold" FontSize="14"/>
-                        <CheckBox x:Name="PunctuationCheck" Content="Add punctuation" IsChecked="True"/>
-                        <CheckBox x:Name="CapitalizeCheck" Content="Capitalize sentences" IsChecked="True"/>
-                        <CheckBox x:Name="ExitWordsCheck" Content="Enable exit words (over, enter, submit)" IsChecked="True"/>
+            <!-- OpenAI Tab -->
+            <TabItem Header="OpenAI">
+                <ScrollViewer Margin="10">
+                    <StackPanel Spacing="15">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="API Key" FontSize="12" Foreground="#888888"/>
+                            <TextBox x:Name="ApiKeyBox" PasswordChar="*" Watermark="sk-..."/>
+                            <TextBlock Text="Or set OPENAI_API_KEY environment variable" FontSize="10" Foreground="#666666"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="ShowApiKeyCheck" Content="Show API Key"/>
+
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Language" FontSize="12" Foreground="#888888"/>
+                            <ComboBox x:Name="LanguageBox" SelectedIndex="0">
+                                <ComboBoxItem Content="Auto-detect" Tag="auto"/>
+                                <ComboBoxItem Content="English" Tag="en"/>
+                                <ComboBoxItem Content="Spanish" Tag="es"/>
+                                <ComboBoxItem Content="French" Tag="fr"/>
+                                <ComboBoxItem Content="German" Tag="de"/>
+                                <ComboBoxItem Content="Italian" Tag="it"/>
+                                <ComboBoxItem Content="Portuguese" Tag="pt"/>
+                                <ComboBoxItem Content="Russian" Tag="ru"/>
+                                <ComboBoxItem Content="Japanese" Tag="ja"/>
+                                <ComboBoxItem Content="Korean" Tag="ko"/>
+                                <ComboBoxItem Content="Chinese" Tag="zh"/>
+                            </ComboBox>
+                        </StackPanel>
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </TabItem>
 
-            </StackPanel>
-        </ScrollViewer>
+            <!-- Typing Tab -->
+            <TabItem Header="Typing">
+                <ScrollViewer Margin="10">
+                    <StackPanel Spacing="15">
+                        <CheckBox x:Name="PasteModeCheck" Content="Use Paste Mode (faster, uses clipboard)" IsChecked="True"/>
+                        <CheckBox x:Name="PunctuationCheck" Content="Auto-add punctuation at end of sentences" IsChecked="True"/>
+                        <CheckBox x:Name="CapitalizeCheck" Content="Capitalize first letter of sentences" IsChecked="True"/>
+                        <CheckBox x:Name="AutoEnterCheck" Content="Auto-press Enter after typing"/>
+
+                        <StackPanel Spacing="5">
+                            <CheckBox x:Name="ExitWordsCheck" Content="Enable exit words (press Enter when spoken)" IsChecked="True"/>
+                            <TextBox x:Name="ExitWordsBox" Watermark="over, enter, submit" Margin="20,0,0,0"/>
+                            <TextBlock Text="Words are removed from text, then Enter is pressed" FontSize="10" Foreground="#666666" Margin="20,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- General Tab -->
+            <TabItem Header="General">
+                <ScrollViewer Margin="10">
+                    <StackPanel Spacing="15">
+                        <CheckBox x:Name="ShowNotificationsCheck" Content="Show notifications" IsChecked="True"/>
+                        <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray"/>
+
+                        <TextBlock Text="Config file location:" FontSize="12" Foreground="#666666" Margin="0,20,0,0"/>
+                        <TextBlock x:Name="ConfigPathLabel" Text="" FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- History Tab -->
+            <TabItem Header="History">
+                <Grid RowDefinitions="*,Auto" Margin="10">
+                    <Border Grid.Row="0" Background="#1E1E1E" CornerRadius="4" BorderBrush="#333" BorderThickness="1">
+                        <ScrollViewer>
+                            <ItemsControl x:Name="HistoryList" Margin="5">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#2A2A2A" CornerRadius="4" Padding="10" Margin="0,0,0,5">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding FormattedTime}" FontSize="10" Foreground="#888888"/>
+                                                    <TextBlock Text="{Binding PreviewText}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="Copy" VerticalAlignment="Center" Click="OnHistoryCopyClick" Tag="{Binding}"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+
+                    <Button Grid.Row="1" Content="Clear All" Click="OnClearHistoryClick" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                </Grid>
+            </TabItem>
+
+        </TabControl>
 
         <!-- Buttons -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="15">

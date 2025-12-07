@@ -1,17 +1,15 @@
-using OpenTK.Audio.OpenAL;
 using WhisperKeyboard.Core;
-using System.Runtime.InteropServices;
 
 namespace WhisperKeyboard.Avalonia;
 
 /// <summary>
-/// Cross-platform audio capture using OpenAL.
-/// Works on Windows, macOS, and Linux.
+/// Cross-platform audio capture using OpenAL via pure P/Invoke.
+/// Uses openal-soft on macOS/Linux for capture support.
 /// </summary>
 public class OpenALAudioCapture : IAudioCapture
 {
     private readonly Config _config;
-    private ALCaptureDevice _captureDevice;
+    private IntPtr _captureDevice;
     private Thread? _captureThread;
     private volatile bool _isRunning;
     private volatile bool _isPaused;
@@ -38,20 +36,15 @@ public class OpenALAudioCapture : IAudioCapture
 
     public List<string> GetAudioDevices()
     {
-        var devices = new List<string>();
         try
         {
-            var deviceList = ALC.GetString(ALDevice.Null, AlcGetStringList.CaptureDeviceSpecifier);
-            if (deviceList != null)
-            {
-                devices.AddRange(deviceList);
-            }
+            return OpenALNative.GetCaptureDeviceNames();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error enumerating audio devices: {ex.Message}");
+            return new List<string>();
         }
-        return devices;
     }
 
     public void Start()
@@ -74,19 +67,19 @@ public class OpenALAudioCapture : IAudioCapture
             // Open capture device
             // Format: 16-bit mono PCM
             int bufferSize = _config.SampleRate; // 1 second buffer
-            _captureDevice = ALC.CaptureOpenDevice(
+            _captureDevice = OpenALNative.CaptureOpenDevice(
                 deviceName,
                 _config.SampleRate,
-                ALFormat.Mono16,
+                OpenALNative.AL_FORMAT_MONO16,
                 bufferSize
             );
 
-            if (_captureDevice == ALCaptureDevice.Null)
+            if (_captureDevice == IntPtr.Zero)
             {
                 throw new Exception("Failed to open audio capture device. Make sure a microphone is connected and permissions are granted.");
             }
 
-            ALC.CaptureStart(_captureDevice);
+            OpenALNative.CaptureStart(_captureDevice);
             _isRunning = true;
             _isPaused = false;
 
@@ -114,11 +107,11 @@ public class OpenALAudioCapture : IAudioCapture
         _isRunning = false;
         _captureThread?.Join(1000);
 
-        if (_captureDevice != ALCaptureDevice.Null)
+        if (_captureDevice != IntPtr.Zero)
         {
-            ALC.CaptureStop(_captureDevice);
-            ALC.CaptureCloseDevice(_captureDevice);
-            _captureDevice = ALCaptureDevice.Null;
+            OpenALNative.CaptureStop(_captureDevice);
+            OpenALNative.CaptureCloseDevice(_captureDevice);
+            _captureDevice = IntPtr.Zero;
         }
 
         Console.WriteLine("Audio capture stopped");
@@ -127,9 +120,9 @@ public class OpenALAudioCapture : IAudioCapture
     public void Pause()
     {
         _isPaused = true;
-        if (_captureDevice != ALCaptureDevice.Null)
+        if (_captureDevice != IntPtr.Zero)
         {
-            ALC.CaptureStop(_captureDevice);
+            OpenALNative.CaptureStop(_captureDevice);
         }
     }
 
@@ -137,9 +130,9 @@ public class OpenALAudioCapture : IAudioCapture
     {
         if (!_isPaused) return;
 
-        if (_captureDevice != ALCaptureDevice.Null)
+        if (_captureDevice != IntPtr.Zero)
         {
-            ALC.CaptureStart(_captureDevice);
+            OpenALNative.CaptureStart(_captureDevice);
         }
         _isPaused = false;
     }
@@ -161,13 +154,13 @@ public class OpenALAudioCapture : IAudioCapture
 
             try
             {
-                // Check how many samples are available using the capture device specific call
-                int samplesAvailable = GetCaptureSamples(_captureDevice);
+                // Check how many samples are available
+                int samplesAvailable = OpenALNative.GetCapturedSamples(_captureDevice);
 
                 if (samplesAvailable >= samplesPerBuffer)
                 {
                     // Capture samples
-                    ALC.CaptureSamples(_captureDevice, buffer, samplesPerBuffer);
+                    OpenALNative.CaptureSamples(_captureDevice, buffer, samplesPerBuffer);
 
                     // Convert to bytes
                     Buffer.BlockCopy(buffer, 0, byteBuffer, 0, byteBuffer.Length);
@@ -187,27 +180,6 @@ public class OpenALAudioCapture : IAudioCapture
             }
         }
     }
-
-    /// <summary>
-    /// Get the number of captured samples available.
-    /// OpenTK's ALC.GetInteger requires ALDevice, but for capture we need a different approach.
-    /// </summary>
-    private static int GetCaptureSamples(ALCaptureDevice device)
-    {
-        // Use P/Invoke to call alcGetIntegerv directly for capture device
-        unsafe
-        {
-            int samples = 0;
-            AlcGetIntegerv(device.Handle, (int)AlcGetInteger.CaptureSamples, 1, &samples);
-            return samples;
-        }
-    }
-
-    // Use the correct library name for each platform
-    private const string OpenALLib = "/opt/homebrew/opt/openal-soft/lib/libopenal.dylib";
-
-    [DllImport(OpenALLib, EntryPoint = "alcGetIntegerv", CallingConvention = CallingConvention.Cdecl)]
-    private static extern unsafe void AlcGetIntegerv(IntPtr device, int param, int size, int* values);
 
     private void ProcessAudioData(byte[] buffer, int bytesRecorded)
     {

@@ -7,20 +7,29 @@ namespace WhisperKeyboard.Avalonia;
 public partial class SettingsWindow : Window
 {
     private readonly Config _config;
+    private readonly TranscriptionHistory? _history;
 
-    public SettingsWindow() : this(Config.Load()) { }
+    public SettingsWindow() : this(Config.Load(), null) { }
 
-    public SettingsWindow(Config config)
+    public SettingsWindow(Config config, TranscriptionHistory? history = null)
     {
         InitializeComponent();
         _config = config;
+        _history = history;
 
+        // Threshold slider label update
         ThresholdSlider.PropertyChanged += (s, e) =>
         {
             if (e.Property.Name == "Value")
             {
                 ThresholdLabel.Text = ((int)ThresholdSlider.Value).ToString();
             }
+        };
+
+        // Show/hide API key toggle
+        ShowApiKeyCheck.IsCheckedChanged += (s, e) =>
+        {
+            ApiKeyBox.PasswordChar = ShowApiKeyCheck.IsChecked == true ? '\0' : '*';
         };
 
         LoadSettings();
@@ -49,8 +58,7 @@ public partial class SettingsWindow : Window
         // Populate audio devices
         try
         {
-            using var tempCapture = new OpenALAudioCapture(_config);
-            var devices = tempCapture.GetAudioDevices();
+            var devices = OpenALNative.GetCaptureDeviceNames();
             DeviceBox.Items.Clear();
             DeviceBox.Items.Add(new ComboBoxItem { Content = "Default", Tag = -1 });
             for (int i = 0; i < devices.Count; i++)
@@ -70,10 +78,33 @@ public partial class SettingsWindow : Window
         ThresholdSlider.Value = _config.VadThreshold;
         ThresholdLabel.Text = _config.VadThreshold.ToString();
 
-        // Text settings
+        // Audio duration settings
+        MinAudioDuration.Value = (decimal)_config.MinAudioDuration;
+        MaxSilenceDuration.Value = (decimal)_config.MaxSilenceDuration;
+
+        // Typing settings
+        PasteModeCheck.IsChecked = _config.PasteMode;
         PunctuationCheck.IsChecked = _config.AddPunctuation;
         CapitalizeCheck.IsChecked = _config.CapitalizeSentences;
+        AutoEnterCheck.IsChecked = _config.AutoEnter;
         ExitWordsCheck.IsChecked = _config.ExitWordsEnabled;
+        ExitWordsBox.Text = string.Join(", ", _config.ExitWords);
+
+        // General settings
+        ShowNotificationsCheck.IsChecked = _config.ShowNotifications;
+        StartMinimizedCheck.IsChecked = _config.StartMinimized;
+        ConfigPathLabel.Text = Config.GetConfigPath();
+
+        // Load history
+        LoadHistory();
+    }
+
+    private void LoadHistory()
+    {
+        if (_history != null)
+        {
+            HistoryList.ItemsSource = _history.GetEntries();
+        }
     }
 
     private void OnSaveClick(object? sender, RoutedEventArgs e)
@@ -99,10 +130,23 @@ public partial class SettingsWindow : Window
         // Threshold
         _config.VadThreshold = (int)ThresholdSlider.Value;
 
-        // Text settings
+        // Audio duration
+        _config.MinAudioDuration = (double)(MinAudioDuration.Value ?? 1);
+        _config.MaxSilenceDuration = (double)(MaxSilenceDuration.Value ?? 1);
+
+        // Typing settings
+        _config.PasteMode = PasteModeCheck.IsChecked ?? true;
         _config.AddPunctuation = PunctuationCheck.IsChecked ?? true;
         _config.CapitalizeSentences = CapitalizeCheck.IsChecked ?? true;
+        _config.AutoEnter = AutoEnterCheck.IsChecked ?? false;
         _config.ExitWordsEnabled = ExitWordsCheck.IsChecked ?? true;
+        _config.ExitWords = (ExitWordsBox.Text ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        // General settings
+        _config.ShowNotifications = ShowNotificationsCheck.IsChecked ?? true;
+        _config.StartMinimized = StartMinimizedCheck.IsChecked ?? false;
 
         _config.Save();
         Close();
@@ -111,5 +155,33 @@ public partial class SettingsWindow : Window
     private void OnCancelClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private async void OnHistoryCopyClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is HistoryEntry entry)
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(entry.FullText);
+
+                // Show feedback
+                var originalContent = button.Content;
+                button.Content = "Copied!";
+                button.IsEnabled = false;
+
+                await Task.Delay(800);
+
+                button.Content = originalContent;
+                button.IsEnabled = true;
+            }
+        }
+    }
+
+    private void OnClearHistoryClick(object? sender, RoutedEventArgs e)
+    {
+        _history?.Clear();
+        HistoryList.ItemsSource = null;
     }
 }
