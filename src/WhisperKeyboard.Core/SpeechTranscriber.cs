@@ -18,7 +18,7 @@ public class SpeechTranscriber : IDisposable
         };
     }
 
-    public async Task<TranscriptionResult?> TranscribeAsync(byte[] audioData)
+    public async Task<TranscriptionResult?> TranscribeAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_config.ApiKey))
         {
@@ -55,8 +55,8 @@ public class SpeechTranscriber : IDisposable
 
             request.Content = content;
 
-            var response = await _httpClient.SendAsync(request);
-            var responseBody = await response.Content.ReadAsStringAsync();
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {

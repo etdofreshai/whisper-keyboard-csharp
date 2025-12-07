@@ -254,11 +254,12 @@ public class RecordingIndicator : Form
         _isPausedState = true;
         _statusText = "Paused";
         _statusColor = Color.FromArgb(255, 180, 100); // Orange
-        _timerText = "";
-        _targetOpacity = PausedOpacity;
+        // Keep timer text visible to show where we paused
+        Opacity = PausedOpacity; // Set immediately for pause
 
+        // Stop all timers - freeze everything in place
         _recordingTimer.Stop();
-        _updateTimer.Start(); // Keep running for smooth transitions
+        _updateTimer.Stop();
 
         if (!Visible)
         {
@@ -266,6 +267,12 @@ public class RecordingIndicator : Form
         }
         EnsureTopmost();
         Refresh();
+    }
+
+    public void ClearVolumeHistory()
+    {
+        Array.Clear(_volumeHistory, 0, _volumeHistory.Length);
+        _currentVolume = 0;
     }
 
     public void SetPauseState(bool isPaused)

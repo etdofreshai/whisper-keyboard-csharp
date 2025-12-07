@@ -25,6 +25,7 @@ public class WhisperKeyboardApp : IDisposable
     private bool _isTranscribing;
     private DateTime _ignoreUntil = DateTime.MinValue;
     private bool _disposed;
+    private CancellationTokenSource? _transcriptionCts;
 
     // Tray icon (defined in App.axaml)
     private NativeMenuItem? _statusMenuItem;
@@ -143,6 +144,9 @@ public class WhisperKeyboardApp : IDisposable
         _isListening = false;
         _isPaused = false;
 
+        // Cancel any in-flight transcription
+        _transcriptionCts?.Cancel();
+
         UpdateStatus("Stopped");
         UpdateMenuState();
 
@@ -158,6 +162,9 @@ public class WhisperKeyboardApp : IDisposable
         _audioCapture.Pause();
         _isPaused = true;
 
+        // Don't cancel transcription - let it complete in background
+        // When resumed, it will continue from where it left off
+
         UpdateStatus("Paused");
         UpdateMenuState();
 
@@ -171,16 +178,29 @@ public class WhisperKeyboardApp : IDisposable
     {
         if (!_isListening || !_isPaused) return;
 
+        // Check if we were recording speech before pause
+        bool wasRecording = _audioCapture.IsSpeechDetected;
+
         _audioCapture.Resume();
         _isPaused = false;
 
-        UpdateStatus("Listening...");
+        _recordingIndicator.SetPauseState(false);
+
+        // Restore the correct state based on what we were doing before pause
+        if (wasRecording)
+        {
+            UpdateStatus("Recording...");
+            _recordingIndicator.ShowRecording();
+        }
+        else
+        {
+            UpdateStatus("Listening...");
+            _recordingIndicator.ShowListening();
+        }
+
         UpdateMenuState();
 
-        _recordingIndicator.SetPauseState(false);
-        _recordingIndicator.ShowListening();
-
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed");
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed (was recording: {wasRecording})");
     }
 
     private void UpdateStatus(string status)
@@ -251,6 +271,11 @@ public class WhisperKeyboardApp : IDisposable
 
         _isTranscribing = true;
 
+        // Create a new cancellation token source for this transcription
+        _transcriptionCts?.Dispose();
+        _transcriptionCts = new CancellationTokenSource();
+        var cancellationToken = _transcriptionCts.Token;
+
         Dispatcher.UIThread.Post(() =>
         {
             UpdateStatus("Transcribing...");
@@ -261,7 +286,15 @@ public class WhisperKeyboardApp : IDisposable
 
         try
         {
-            var result = await _transcriber.TranscribeAsync(audioData);
+            var result = await _transcriber.TranscribeAsync(audioData, cancellationToken);
+
+            // Check if we were cancelled or stopped before typing
+            // Note: paused is OK - transcription should complete if user spoke before pausing
+            if (cancellationToken.IsCancellationRequested || !_isListening)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription completed but cancelled/stopped - not typing");
+                return;
+            }
 
             if (result != null && !string.IsNullOrWhiteSpace(result.Text))
             {
@@ -286,6 +319,10 @@ public class WhisperKeyboardApp : IDisposable
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription returned empty result");
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription cancelled");
         }
         catch (Exception ex)
         {
@@ -331,6 +368,8 @@ public class WhisperKeyboardApp : IDisposable
     {
         if (_disposed) return;
 
+        _transcriptionCts?.Cancel();
+        _transcriptionCts?.Dispose();
         _audioCapture.Stop();
         _audioCapture.Dispose();
         _transcriber.Dispose();

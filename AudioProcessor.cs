@@ -24,6 +24,7 @@ public class AudioProcessor : IDisposable
 
     public bool IsRecording => _isRecording;
     public bool IsPaused { get; private set; }
+    public bool IsSpeechDetected => _isSpeechDetected;
 
     public AudioProcessor(Config config)
     {
@@ -85,6 +86,12 @@ public class AudioProcessor : IDisposable
     public void Resume()
     {
         if (!IsPaused) return;
+
+        // Reset timing so silence duration doesn't include pause time
+        if (_isSpeechDetected)
+        {
+            _lastSpeechTime = DateTime.Now;
+        }
 
         try
         {

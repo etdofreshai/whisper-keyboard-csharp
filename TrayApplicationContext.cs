@@ -17,6 +17,7 @@ public class TrayApplicationContext : ApplicationContext
     private bool _isTranscribing;
     private DateTime _ignoreUntil = DateTime.MinValue;
     private DateTime _speechStartTime;
+    private CancellationTokenSource? _transcriptionCts;
 
     private ToolStripMenuItem _statusMenuItem = null!;
     private ToolStripMenuItem _toggleMenuItem = null!;
@@ -286,6 +287,9 @@ public class TrayApplicationContext : ApplicationContext
         _isListening = false;
         _isPaused = false;
 
+        // Cancel any in-flight transcription
+        _transcriptionCts?.Cancel();
+
         UpdateStatus("Stopped");
         _trayIcon.Icon = CreateDefaultIcon();
         _toggleMenuItem.Text = "Start Listening";
@@ -305,6 +309,9 @@ public class TrayApplicationContext : ApplicationContext
     {
         _audioProcessor.Pause();
         _isPaused = true;
+
+        // Don't cancel transcription - let it complete in background
+        // When resumed, it will continue from where it left off
 
         UpdateStatus("Paused");
         _trayIcon.Icon = CreatePausedIcon();
@@ -326,21 +333,30 @@ public class TrayApplicationContext : ApplicationContext
 
     private void ResumeListening()
     {
+        // Check if we were recording speech before pause
+        bool wasRecording = _audioProcessor.IsSpeechDetected;
+
         _audioProcessor.Resume();
         _isPaused = false;
-
-        UpdateStatus("Listening...");
-        _trayIcon.Icon = CreateListeningIcon();
         _pauseMenuItem.Text = "Pause";
 
-        // Show indicator again
-        SafeInvokeIndicator(() =>
-        {
-            _recordingIndicator.SetPauseState(false);
-            _recordingIndicator.ShowListening();
-        });
+        // Restore the correct state based on what we were doing before pause
+        SafeInvokeIndicator(() => _recordingIndicator.SetPauseState(false));
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed listening");
+        if (wasRecording)
+        {
+            UpdateStatus("Recording...");
+            _trayIcon.Icon = CreateRecordingIcon();
+            SafeInvokeIndicator(() => _recordingIndicator.ShowRecording());
+        }
+        else
+        {
+            UpdateStatus("Listening...");
+            _trayIcon.Icon = CreateListeningIcon();
+            SafeInvokeIndicator(() => _recordingIndicator.ShowListening());
+        }
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed (was recording: {wasRecording})");
 
         if (_config.ShowNotifications)
         {
@@ -433,6 +449,12 @@ public class TrayApplicationContext : ApplicationContext
         }
 
         _isTranscribing = true;
+
+        // Create a new cancellation token source for this transcription
+        _transcriptionCts?.Dispose();
+        _transcriptionCts = new CancellationTokenSource();
+        var cancellationToken = _transcriptionCts.Token;
+
         UpdateStatus("Transcribing...");
 
         // Update indicator to show transcribing
@@ -442,7 +464,15 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
-            var result = await _transcriber.TranscribeAsync(audioData);
+            var result = await _transcriber.TranscribeAsync(audioData, cancellationToken);
+
+            // Check if we were cancelled or stopped before typing
+            // Note: paused is OK - transcription should complete if user spoke before pausing
+            if (cancellationToken.IsCancellationRequested || !_isListening)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription completed but cancelled/stopped - not typing");
+                return;
+            }
 
             if (result != null && !string.IsNullOrWhiteSpace(result.Text))
             {
@@ -482,6 +512,10 @@ public class TrayApplicationContext : ApplicationContext
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription returned empty result");
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription cancelled");
         }
         catch (Exception ex)
         {
@@ -591,6 +625,8 @@ public class TrayApplicationContext : ApplicationContext
 
     private void Exit_Click(object? sender, EventArgs e)
     {
+        _transcriptionCts?.Cancel();
+        _transcriptionCts?.Dispose();
         _audioProcessor.Stop();
         _audioProcessor.Dispose();
         _transcriber.Dispose();

@@ -303,14 +303,21 @@ public partial class RecordingIndicator : Window
         _isPaused = true;
         StatusText.Text = "Paused";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 180, 100));
-        TimerText.Text = "";
-        _targetOpacity = PausedOpacity;
+        // Keep timer text visible to show where we paused
+        Opacity = PausedOpacity; // Set immediately for pause
 
         UpdatePauseButtonState();
+        // Stop all timers - freeze everything in place
         _recordingTimer.Stop();
-        _updateTimer.Start();
+        _updateTimer.Stop();
 
         if (!IsVisible) Show();
+    }
+
+    public void ClearVolumeHistory()
+    {
+        Array.Clear(_volumeHistory, 0, _volumeHistory.Length);
+        _currentVolume = 0;
     }
 
     public void SetPauseState(bool isPaused)

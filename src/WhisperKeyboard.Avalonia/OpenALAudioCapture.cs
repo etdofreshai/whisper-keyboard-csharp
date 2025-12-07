@@ -28,6 +28,7 @@ public class OpenALAudioCapture : IAudioCapture
 
     public bool IsRecording => _isRunning;
     public bool IsPaused => _isPaused;
+    public bool IsSpeechDetected => _isSpeechDetected;
 
     public OpenALAudioCapture(Config config)
     {
@@ -129,6 +130,12 @@ public class OpenALAudioCapture : IAudioCapture
     public void Resume()
     {
         if (!_isPaused) return;
+
+        // Reset timing so silence duration doesn't include pause time
+        if (_isSpeechDetected)
+        {
+            _lastSpeechTime = DateTime.Now;
+        }
 
         if (_captureDevice != IntPtr.Zero)
         {
