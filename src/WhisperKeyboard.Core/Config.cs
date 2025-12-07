@@ -1,26 +1,35 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
-namespace WhisperKeyboard;
+namespace WhisperKeyboard.Core;
 
 public class Config
 {
-    private static readonly string ConfigDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "WhisperKeyboard");
+    private static string GetConfigDirectory()
+    {
+        // Cross-platform: use ApplicationData on Windows, ~/.config on Unix
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrEmpty(appData))
+        {
+            // Fallback for Unix systems where ApplicationData might be empty
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            appData = Path.Combine(home, ".config");
+        }
+        return Path.Combine(appData, "WhisperKeyboard");
+    }
 
-    private static readonly string ConfigFilePath = Path.Combine(ConfigDirectory, "config.json");
+    private static string ConfigDirectory => GetConfigDirectory();
+    private static string ConfigFilePath => Path.Combine(ConfigDirectory, "config.json");
 
     // Audio Settings
     public int SampleRate { get; set; } = 16000;
     public int ChunkSize { get; set; } = 1024;
     public int Channels { get; set; } = 1;
     public int DeviceIndex { get; set; } = -1; // -1 = default device
-    public int VadThreshold { get; set; } = 500; // Lower default - adjust based on your mic
+    public int VadThreshold { get; set; } = 500;
     public double SilenceThreshold { get; set; } = 0.5;
     public double MinSpeechDuration { get; set; } = 0.5;
     public double MaxSilenceDuration { get; set; } = 1.0;
-    public double MinAudioDuration { get; set; } = 1.5;
+    public double MinAudioDuration { get; set; } = 0.5;
 
     // OpenAI Settings
     public string ApiKey { get; set; } = "";
@@ -31,20 +40,19 @@ public class Config
     public double TypingSpeed { get; set; } = 0.001;
     public bool AddPunctuation { get; set; } = true;
     public bool CapitalizeSentences { get; set; } = true;
-    public bool PasteMode { get; set; } = false;
+    public bool PasteMode { get; set; } = true; // Default to paste mode (more portable)
     public bool AutoEnter { get; set; } = false;
     public bool ExitWordsEnabled { get; set; } = true;
     public List<string> ExitWords { get; set; } = new List<string> { "over", "enter", "submit" };
 
-    // Hotkey Settings
-    public string ToggleRecordingHotkey { get; set; } = "Ctrl+Shift+R";
-    public string PauseResumeHotkey { get; set; } = "Ctrl+Shift+P";
-    public string QuitAppHotkey { get; set; } = "Ctrl+Shift+Q";
+    // Hotkey Settings (empty string = disabled)
+    public string ToggleRecordingHotkey { get; set; } = "";
+    public string PauseResumeHotkey { get; set; } = "";
+    public string OpenSettingsHotkey { get; set; } = "";
 
     // General Settings
     public bool ShowNotifications { get; set; } = true;
     public bool StartMinimized { get; set; } = true;
-    public bool StartWithWindows { get; set; } = false;
     public bool IsCalibrated { get; set; } = false;
 
     public static Config Load()

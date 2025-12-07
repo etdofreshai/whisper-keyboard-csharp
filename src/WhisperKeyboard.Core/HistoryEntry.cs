@@ -1,4 +1,4 @@
-namespace WhisperKeyboard;
+namespace WhisperKeyboard.Core;
 
 public class HistoryEntry
 {
