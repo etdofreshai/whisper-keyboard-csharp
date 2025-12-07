@@ -32,6 +32,12 @@ public partial class RecordingIndicator : Window
     private const double ActiveOpacity = 0.95;
     private double _targetOpacity = ListeningOpacity;
 
+    // Fade timing settings
+    private const double FadeInSpeed = 0.15;      // Fast fade in
+    private const double FadeOutSpeed = 0.03;     // Slower fade out
+    private const int FadeOutDelayMs = 800;       // Delay before fade out starts
+    private DateTime? _fadeOutDelayStart;
+
     // Events
     public event Action? OnPauseClicked;
     public event Action? OnStopClicked;
@@ -126,15 +132,46 @@ public partial class RecordingIndicator : Window
         _volumeHistory[_volumeIndex] = _currentVolume;
         _volumeIndex = (_volumeIndex + 1) % MaxVolumeHistory;
 
-        // Smooth opacity transition
+        // Smooth opacity transition with asymmetric fade speeds
         var currentOpacity = Opacity;
-        if (Math.Abs(currentOpacity - _targetOpacity) > 0.01)
+        bool isFadingOut = _targetOpacity < currentOpacity;
+
+        if (isFadingOut)
         {
-            Opacity = currentOpacity + (_targetOpacity - currentOpacity) * 0.15;
+            // Check if we need to wait for delay
+            if (_fadeOutDelayStart == null)
+            {
+                _fadeOutDelayStart = DateTime.Now;
+            }
+
+            var delayElapsed = (DateTime.Now - _fadeOutDelayStart.Value).TotalMilliseconds;
+            if (delayElapsed >= FadeOutDelayMs)
+            {
+                // Delay complete, do slow fade out
+                if (Math.Abs(currentOpacity - _targetOpacity) > 0.01)
+                {
+                    Opacity = currentOpacity + (_targetOpacity - currentOpacity) * FadeOutSpeed;
+                }
+                else if (Math.Abs(currentOpacity - _targetOpacity) > 0.001)
+                {
+                    Opacity = _targetOpacity;
+                }
+            }
+            // else: still in delay period, don't change opacity
         }
-        else if (Math.Abs(currentOpacity - _targetOpacity) > 0.001)
+        else
         {
-            Opacity = _targetOpacity;
+            // Fading in - reset delay and use fast fade
+            _fadeOutDelayStart = null;
+
+            if (Math.Abs(currentOpacity - _targetOpacity) > 0.01)
+            {
+                Opacity = currentOpacity + (_targetOpacity - currentOpacity) * FadeInSpeed;
+            }
+            else if (Math.Abs(currentOpacity - _targetOpacity) > 0.001)
+            {
+                Opacity = _targetOpacity;
+            }
         }
 
         // Redraw waveform
