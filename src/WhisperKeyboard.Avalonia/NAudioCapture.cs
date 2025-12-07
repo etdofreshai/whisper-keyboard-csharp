@@ -15,6 +15,7 @@ public class NAudioCapture : IAudioCapture
     private bool _isSpeechDetected;
     private DateTime _lastSpeechTime;
     private DateTime _speechStartTime;
+    private TimeSpan _accumulatedSpeechDuration;
     private bool _disposed;
     private DateTime _lastVolumeLog = DateTime.MinValue;
     private double _maxVolumeSeen;
@@ -133,16 +134,8 @@ public class NAudioCapture : IAudioCapture
 
         lock (_bufferLock)
         {
-            // Maintain voice buffer (last few chunks before speech)
             var chunk = new byte[e.BytesRecorded];
             Array.Copy(e.Buffer, chunk, e.BytesRecorded);
-            _voiceBuffer.Add(chunk);
-
-            // Keep only last 5 chunks in voice buffer
-            while (_voiceBuffer.Count > 5)
-            {
-                _voiceBuffer.RemoveAt(0);
-            }
 
             if (isSpeech)
             {
@@ -151,28 +144,49 @@ public class NAudioCapture : IAudioCapture
                     // Speech just started
                     _isSpeechDetected = true;
                     _speechStartTime = DateTime.Now;
+                    
+                    // Calculate duration of voice buffer (pre-roll)
+                    long bufferBytes = _voiceBuffer.Sum(b => b.Length);
+                    double bufferDuration = (double)bufferBytes / (_config.SampleRate * 2);
+                    _accumulatedSpeechDuration = TimeSpan.FromSeconds(bufferDuration);
+                    
                     SpeechDetected?.Invoke(this, true);
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech STARTED. Pre-roll: {bufferDuration:F2}s");
 
                     // Add context from voice buffer
                     _audioBuffer.AddRange(_voiceBuffer);
                     _voiceBuffer.Clear();
                 }
 
+                // Calculate chunk duration
+                double chunkDuration = (double)e.BytesRecorded / (_config.SampleRate * 2); // 16-bit = 2 bytes
+                _accumulatedSpeechDuration += TimeSpan.FromSeconds(chunkDuration);
+
                 _lastSpeechTime = DateTime.Now;
                 _audioBuffer.Add(chunk);
             }
-            else if (_isSpeechDetected)
+            else 
             {
-                // Still recording after speech
-                _audioBuffer.Add(chunk);
-
-                var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
-                var speechDuration = (DateTime.Now - _speechStartTime).TotalSeconds;
-
-                if (silenceDuration > _config.MaxSilenceDuration && speechDuration > _config.MinSpeechDuration)
+                // Silence - maintain pre-roll buffer
+                _voiceBuffer.Add(chunk);
+                while (_voiceBuffer.Count > 5)
                 {
-                    // End of speech detected
-                    FinalizeAudio();
+                    _voiceBuffer.RemoveAt(0);
+                }
+
+                if (_isSpeechDetected)
+                {
+                    // Still recording after speech (trailing silence)
+                    _audioBuffer.Add(chunk);
+
+                    var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+
+                    if (silenceDuration > _config.MaxSilenceDuration)
+                    {
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Silence timeout ({silenceDuration:F2}s > {_config.MaxSilenceDuration}s). Finalizing...");
+                        // End of speech detected
+                        FinalizeAudio();
+                    }
                 }
             }
         }
@@ -180,13 +194,21 @@ public class NAudioCapture : IAudioCapture
 
     private void FinalizeAudio()
     {
-        var totalDuration = (_audioBuffer.Count * _config.ChunkSize) / (double)_config.SampleRate;
+        // Calculate total duration of the recording (including silence within the phrase)
+        var totalDuration = (_audioBuffer.Count * _config.ChunkSize) / (double)_config.SampleRate; // ChunkSize is not reliable here as we add raw bytes
+        
+        // Better calculation: total bytes / bytes per second
+        long totalBytes = _audioBuffer.Sum(b => b.Length);
+        double durationSeconds = (double)totalBytes / (_config.SampleRate * 2); // 16-bit = 2 bytes
 
-        if (totalDuration >= _config.MinAudioDuration)
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Finalizing audio. Total Duration: {durationSeconds:F2}s (Min: {_config.MinAudioDuration}s)");
+
+        // Check if the TOTAL duration (start to finish) meets the minimum
+        // This allows for natural pauses within a sentence
+        if (durationSeconds >= _config.MinAudioDuration)
         {
             // Combine all audio chunks
-            int totalLength = _audioBuffer.Sum(b => b.Length);
-            var combinedAudio = new byte[totalLength];
+            var combinedAudio = new byte[totalBytes];
             int offset = 0;
 
             foreach (var chunk in _audioBuffer)
@@ -195,7 +217,12 @@ public class NAudioCapture : IAudioCapture
                 offset += chunk.Length;
             }
 
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio accepted. Total size: {totalBytes} bytes");
             AudioReady?.Invoke(this, combinedAudio);
+        }
+        else
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Discarded audio: Duration {durationSeconds:F2}s < Min {_config.MinAudioDuration}s");
         }
 
         // Reset state

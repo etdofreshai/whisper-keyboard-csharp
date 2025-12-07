@@ -21,6 +21,7 @@ public class OpenALAudioCapture : IAudioCapture
     private bool _isSpeechDetected;
     private DateTime _lastSpeechTime;
     private DateTime _speechStartTime;
+    private TimeSpan _accumulatedSpeechDuration;
 
     public event EventHandler<byte[]>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
@@ -199,16 +200,8 @@ public class OpenALAudioCapture : IAudioCapture
 
         lock (_bufferLock)
         {
-            // Maintain voice buffer (last few chunks before speech)
             var chunk = new byte[bytesRecorded];
             Array.Copy(buffer, chunk, bytesRecorded);
-            _voiceBuffer.Add(chunk);
-
-            // Keep only last 5 chunks in voice buffer
-            while (_voiceBuffer.Count > 5)
-            {
-                _voiceBuffer.RemoveAt(0);
-            }
 
             if (isSpeech)
             {
@@ -217,6 +210,12 @@ public class OpenALAudioCapture : IAudioCapture
                     // Speech just started
                     _isSpeechDetected = true;
                     _speechStartTime = DateTime.Now;
+                    
+                    // Calculate duration of voice buffer (pre-roll)
+                    long bufferBytes = _voiceBuffer.Sum(b => b.Length);
+                    double bufferDuration = (double)bufferBytes / (_config.SampleRate * 2);
+                    _accumulatedSpeechDuration = TimeSpan.FromSeconds(bufferDuration);
+                    
                     SpeechDetected?.Invoke(this, true);
 
                     // Add context from voice buffer
@@ -224,21 +223,34 @@ public class OpenALAudioCapture : IAudioCapture
                     _voiceBuffer.Clear();
                 }
 
+                // Calculate chunk duration
+                double chunkDuration = (double)bytesRecorded / (_config.SampleRate * 2); // 16-bit = 2 bytes
+                _accumulatedSpeechDuration += TimeSpan.FromSeconds(chunkDuration);
+
                 _lastSpeechTime = DateTime.Now;
                 _audioBuffer.Add(chunk);
             }
-            else if (_isSpeechDetected)
+            else 
             {
-                // Still recording after speech
-                _audioBuffer.Add(chunk);
-
-                var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
-                var speechDuration = (DateTime.Now - _speechStartTime).TotalSeconds;
-
-                if (silenceDuration > _config.MaxSilenceDuration && speechDuration > _config.MinSpeechDuration)
+                // Silence - maintain pre-roll buffer
+                _voiceBuffer.Add(chunk);
+                while (_voiceBuffer.Count > 5)
                 {
-                    // End of speech detected
-                    FinalizeAudio();
+                    _voiceBuffer.RemoveAt(0);
+                }
+
+                if (_isSpeechDetected)
+                {
+                    // Still recording after speech (trailing silence)
+                    _audioBuffer.Add(chunk);
+
+                    var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+
+                    if (silenceDuration > _config.MaxSilenceDuration)
+                    {
+                        // End of speech detected
+                        FinalizeAudio();
+                    }
                 }
             }
         }
@@ -246,12 +258,13 @@ public class OpenALAudioCapture : IAudioCapture
 
     private void FinalizeAudio()
     {
-        var totalBytes = _audioBuffer.Sum(b => b.Length);
-        var totalDuration = totalBytes / (double)(_config.SampleRate * 2); // 16-bit = 2 bytes per sample
+        // Calculate total duration of the recording (including silence within the phrase)
+        long totalBytes = _audioBuffer.Sum(b => b.Length);
+        double durationSeconds = (double)totalBytes / (_config.SampleRate * 2); // 16-bit = 2 bytes
 
-        if (totalDuration >= _config.MinAudioDuration)
+        // Check if the TOTAL duration (start to finish) meets the minimum
+        if (durationSeconds >= _config.MinAudioDuration)
         {
-            // Combine all audio chunks
             var combinedAudio = new byte[totalBytes];
             int offset = 0;
 
@@ -262,6 +275,10 @@ public class OpenALAudioCapture : IAudioCapture
             }
 
             AudioReady?.Invoke(this, combinedAudio);
+        }
+        else
+        {
+            Console.WriteLine($"Discarded audio: Duration {durationSeconds:F2}s < Min {_config.MinAudioDuration}s");
         }
 
         // Reset state

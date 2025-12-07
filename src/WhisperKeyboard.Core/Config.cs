@@ -29,7 +29,7 @@ public class Config
     public double SilenceThreshold { get; set; } = 0.5;
     public double MinSpeechDuration { get; set; } = 0.5;
     public double MaxSilenceDuration { get; set; } = 1.0;
-    public double MinAudioDuration { get; set; } = 1.5;
+    public double MinAudioDuration { get; set; } = 0.5;
 
     // OpenAI Settings
     public string ApiKey { get; set; } = "";
