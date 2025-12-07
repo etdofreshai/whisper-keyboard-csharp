@@ -1,9 +1,11 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 
 namespace WhisperKeyboard.Avalonia;
 
@@ -70,8 +72,57 @@ public partial class App : Application
             // Add to application's tray icons
             var icons = new TrayIcons { _trayIcon };
             SetValue(TrayIcon.IconsProperty, icons);
+
+            // Hide from Dock on macOS (must be done after everything is set up)
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                // Use a timer to call this after the event loop starts
+                DispatcherTimer.RunOnce(() => MacOSHelper.HideFromDock(), TimeSpan.FromMilliseconds(100));
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+}
+
+/// <summary>
+/// macOS native interop for hiding app from Dock
+/// </summary>
+internal static partial class MacOSHelper
+{
+    // NSApplicationActivationPolicy values
+    private const long NSApplicationActivationPolicyAccessory = 1;
+
+    [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_getClass", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial IntPtr objc_getClass(string className);
+
+    [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "sel_registerName", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial IntPtr sel_registerName(string selectorName);
+
+    [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static partial IntPtr objc_msgSend(IntPtr receiver, IntPtr selector);
+
+    [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static partial void objc_msgSend_long(IntPtr receiver, IntPtr selector, long arg);
+
+    public static void HideFromDock()
+    {
+        try
+        {
+            // Get [NSApplication sharedApplication]
+            var nsAppClass = objc_getClass("NSApplication");
+            var sharedAppSel = sel_registerName("sharedApplication");
+            var nsApp = objc_msgSend(nsAppClass, sharedAppSel);
+
+            // [nsApp setActivationPolicy:NSApplicationActivationPolicyAccessory]
+            var setActivationPolicySel = sel_registerName("setActivationPolicy:");
+            objc_msgSend_long(nsApp, setActivationPolicySel, NSApplicationActivationPolicyAccessory);
+
+            Console.WriteLine("Set activation policy to Accessory (hidden from Dock)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to hide from Dock: {ex.Message}");
+        }
     }
 }

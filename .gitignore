@@ -39,3 +39,6 @@ Desktop.ini
 # Config files with secrets
 appsettings.json
 config.json
+
+# Publish output
+publish/
