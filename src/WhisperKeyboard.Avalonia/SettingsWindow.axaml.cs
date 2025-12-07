@@ -1,5 +1,7 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using WhisperKeyboard.Core;
 
 namespace WhisperKeyboard.Avalonia;
@@ -8,6 +10,7 @@ public partial class SettingsWindow : Window
 {
     private readonly Config _config;
     private readonly TranscriptionHistory? _history;
+    private TextBox? _activeHotkeyBox;
 
     public SettingsWindow() : this(Config.Load(), null) { }
 
@@ -193,5 +196,167 @@ public partial class SettingsWindow : Window
     {
         _history?.Clear();
         HistoryList.ItemsSource = null;
+    }
+
+    private void OnClearHotkeyClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is string tag)
+        {
+            switch (tag)
+            {
+                case "ToggleRecording":
+                    ToggleRecordingHotkeyBox.Clear();
+                    break;
+                case "PauseResume":
+                    PauseResumeHotkeyBox.Clear();
+                    break;
+                case "OpenSettings":
+                    OpenSettingsHotkeyBox.Clear();
+                    break;
+            }
+        }
+    }
+
+    private void OnHotkeyBoxGotFocus(object? sender, GotFocusEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            _activeHotkeyBox = textBox;
+            textBox.BorderBrush = new SolidColorBrush(Color.Parse("#0078D4"));
+            textBox.BorderThickness = new global::Avalonia.Thickness(2);
+            if (string.IsNullOrEmpty(textBox.Text))
+            {
+                textBox.Watermark = "Press a key combination...";
+            }
+        }
+    }
+
+    private void OnHotkeyBoxLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            _activeHotkeyBox = null;
+            textBox.BorderBrush = new SolidColorBrush(Color.Parse("#444444"));
+            textBox.BorderThickness = new global::Avalonia.Thickness(1);
+            textBox.Watermark = "Click to set hotkey";
+        }
+    }
+
+    private void OnHotkeyBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox textBox) return;
+
+        e.Handled = true;
+
+        // Escape clears the hotkey
+        if (e.Key == Key.Escape)
+        {
+            textBox.Text = "";
+            return;
+        }
+
+        // Ignore modifier-only key presses
+        if (IsModifierKey(e.Key))
+        {
+            return;
+        }
+
+        // Build the hotkey string
+        var hotkey = BuildHotkeyString(e.KeyModifiers, e.Key);
+        if (!string.IsNullOrEmpty(hotkey))
+        {
+            textBox.Text = hotkey;
+        }
+    }
+
+    private static bool IsModifierKey(Key key)
+    {
+        return key == Key.LeftShift || key == Key.RightShift ||
+               key == Key.LeftCtrl || key == Key.RightCtrl ||
+               key == Key.LeftAlt || key == Key.RightAlt ||
+               key == Key.LWin || key == Key.RWin;
+    }
+
+    private static string BuildHotkeyString(KeyModifiers modifiers, Key key)
+    {
+        var parts = new List<string>();
+
+        // Add modifiers in standard order (macOS convention)
+        if (modifiers.HasFlag(KeyModifiers.Meta))
+            parts.Add("Cmd");
+        if (modifiers.HasFlag(KeyModifiers.Control))
+            parts.Add("Ctrl");
+        if (modifiers.HasFlag(KeyModifiers.Alt))
+            parts.Add("Option");
+        if (modifiers.HasFlag(KeyModifiers.Shift))
+            parts.Add("Shift");
+
+        // Convert key to display string
+        var keyName = GetKeyName(key);
+        if (!string.IsNullOrEmpty(keyName))
+        {
+            parts.Add(keyName);
+        }
+
+        // Require at least one modifier for a valid hotkey
+        if (parts.Count < 2)
+        {
+            return "";
+        }
+
+        return string.Join("+", parts);
+    }
+
+    private static string? GetKeyName(Key key)
+    {
+        return key switch
+        {
+            // Letters
+            Key.A => "A", Key.B => "B", Key.C => "C", Key.D => "D", Key.E => "E",
+            Key.F => "F", Key.G => "G", Key.H => "H", Key.I => "I", Key.J => "J",
+            Key.K => "K", Key.L => "L", Key.M => "M", Key.N => "N", Key.O => "O",
+            Key.P => "P", Key.Q => "Q", Key.R => "R", Key.S => "S", Key.T => "T",
+            Key.U => "U", Key.V => "V", Key.W => "W", Key.X => "X", Key.Y => "Y",
+            Key.Z => "Z",
+
+            // Numbers
+            Key.D0 => "0", Key.D1 => "1", Key.D2 => "2", Key.D3 => "3", Key.D4 => "4",
+            Key.D5 => "5", Key.D6 => "6", Key.D7 => "7", Key.D8 => "8", Key.D9 => "9",
+
+            // Function keys
+            Key.F1 => "F1", Key.F2 => "F2", Key.F3 => "F3", Key.F4 => "F4",
+            Key.F5 => "F5", Key.F6 => "F6", Key.F7 => "F7", Key.F8 => "F8",
+            Key.F9 => "F9", Key.F10 => "F10", Key.F11 => "F11", Key.F12 => "F12",
+
+            // Special keys
+            Key.Space => "Space",
+            Key.Return => "Return",
+            Key.Tab => "Tab",
+            Key.Delete => "Delete",
+            Key.Back => "Backspace",
+            Key.Up => "Up",
+            Key.Down => "Down",
+            Key.Left => "Left",
+            Key.Right => "Right",
+            Key.Home => "Home",
+            Key.End => "End",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+
+            // Punctuation
+            Key.OemComma => ",",
+            Key.OemPeriod => ".",
+            Key.OemMinus => "-",
+            Key.OemPlus => "=",
+            Key.OemOpenBrackets => "[",
+            Key.OemCloseBrackets => "]",
+            Key.OemBackslash => "\\",
+            Key.OemSemicolon => ";",
+            Key.OemQuotes => "'",
+            Key.OemTilde => "`",
+            Key.OemQuestion => "/",
+
+            _ => null
+        };
     }
 }

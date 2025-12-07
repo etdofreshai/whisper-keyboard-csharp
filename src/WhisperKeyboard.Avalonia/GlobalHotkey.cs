@@ -3,81 +3,87 @@ using System.Runtime.InteropServices;
 namespace WhisperKeyboard.Avalonia;
 
 /// <summary>
-/// macOS global hotkey implementation using Carbon Event Manager.
+/// macOS global hotkey implementation using CGEventTap.
 /// Requires accessibility permissions to work properly.
 /// </summary>
 public class GlobalHotkey : IDisposable
 {
-    // Carbon Event Manager constants
-    private const uint kEventHotKeyPressed = 5;
-    private const uint kEventClassKeyboard = 0x6b657962; // 'keyb'
-    private const uint typeEventHotKeyID = 0x686b6964; // 'hkid'
+    // CGEvent types
+    private const int kCGEventKeyDown = 10;
+    private const int kCGEventFlagsChanged = 12;
+    private const int kCGEventNull = 0; // NULL event for tap disabled
 
-    // Carbon modifier flags
-    private const uint cmdKey = 0x0100;
-    private const uint shiftKey = 0x0200;
-    private const uint optionKey = 0x0800;
-    private const uint controlKey = 0x1000;
+    // CGEvent flags (modifier keys)
+    private const ulong kCGEventFlagMaskCommand = 0x00100000;
+    private const ulong kCGEventFlagMaskShift = 0x00020000;
+    private const ulong kCGEventFlagMaskAlternate = 0x00080000;
+    private const ulong kCGEventFlagMaskControl = 0x00040000;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct EventHotKeyID
-    {
-        public uint signature;
-        public uint id;
-    }
+    // CGEventTap location
+    private const int kCGSessionEventTap = 1;
+    private const int kCGHeadInsertEventTap = 0;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct EventTypeSpec
-    {
-        public uint eventClass;
-        public uint eventKind;
-    }
+    // CFRunLoop constants
+    private const string kCFRunLoopCommonModes = "kCFRunLoopCommonModes";
+    private const string kCFRunLoopDefaultMode = "kCFRunLoopDefaultMode";
 
-    // Carbon API imports
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern int RegisterEventHotKey(
-        uint inHotKeyCode,
-        uint inHotKeyModifiers,
-        EventHotKeyID inHotKeyID,
-        IntPtr inTarget,
-        uint inOptions,
-        out IntPtr outRef);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate IntPtr CGEventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo);
 
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern int UnregisterEventHotKey(IntPtr inHotKey);
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern IntPtr CGEventTapCreate(
+        int tap,
+        int place,
+        int options,
+        ulong eventsOfInterest,
+        CGEventTapCallback callback,
+        IntPtr userInfo);
 
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern IntPtr GetApplicationEventTarget();
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern void CGEventTapEnable(IntPtr tap, bool enable);
 
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern int InstallEventHandler(
-        IntPtr inTarget,
-        IntPtr inHandler,
-        uint inNumTypes,
-        EventTypeSpec[] inList,
-        IntPtr inUserData,
-        out IntPtr outRef);
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern ulong CGEventGetFlags(IntPtr eventRef);
 
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern int RemoveEventHandler(IntPtr inHandlerRef);
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern long CGEventGetIntegerValueField(IntPtr eventRef, int field);
 
-    [DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-    private static extern int GetEventParameter(
-        IntPtr inEvent,
-        uint inName,
-        uint inDesiredType,
-        IntPtr outActualType,
-        uint inBufferSize,
-        IntPtr outActualSize,
-        out EventHotKeyID outData);
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFMachPortCreateRunLoopSource(IntPtr allocator, IntPtr port, int order);
 
-    private delegate int EventHandlerDelegate(IntPtr inHandlerCallRef, IntPtr inEvent, IntPtr inUserData);
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFRunLoopGetMain();
 
-    private readonly Dictionary<uint, (IntPtr hotkeyRef, Action callback)> _registeredHotkeys = new();
-    private uint _nextId = 1;
-    private IntPtr _eventHandlerRef;
-    private EventHandlerDelegate? _handlerDelegate;
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFRunLoopGetCurrent();
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopAddSource(IntPtr rl, IntPtr source, IntPtr mode);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopRemoveSource(IntPtr rl, IntPtr source, IntPtr mode);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopRun();
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopStop(IntPtr rl);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRelease(IntPtr cf);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string cStr, int encoding);
+
+    private readonly List<(uint keyCode, ulong modifiers, Action callback)> _registeredHotkeys = new();
+    private IntPtr _eventTap;
+    private IntPtr _runLoopSource;
+    private IntPtr _runLoop;
+    private CGEventTapCallback? _callbackDelegate;
+    private Thread? _runLoopThread;
     private bool _disposed;
+    private volatile bool _stopRequested;
+    private readonly ManualResetEventSlim _eventTapReady = new(false);
 
     private static readonly Dictionary<string, uint> KeyCodes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -104,100 +110,171 @@ public class GlobalHotkey : IDisposable
 
     public GlobalHotkey()
     {
-        InstallHandler();
-    }
-
-    private void InstallHandler()
-    {
-        _handlerDelegate = HotkeyHandler;
-        var handlerPtr = Marshal.GetFunctionPointerForDelegate(_handlerDelegate);
-
-        var eventTypes = new EventTypeSpec[]
+        // Start the event tap on a background thread with its own run loop
+        _runLoopThread = new Thread(RunEventTapThread)
         {
-            new() { eventClass = kEventClassKeyboard, eventKind = kEventHotKeyPressed }
+            Name = "GlobalHotkeyThread",
+            IsBackground = true
         };
+        _runLoopThread.Start();
+    }
 
-        var result = InstallEventHandler(
-            GetApplicationEventTarget(),
-            handlerPtr,
-            1,
-            eventTypes,
-            IntPtr.Zero,
-            out _eventHandlerRef);
-
-        if (result != 0)
+    private void RunEventTapThread()
+    {
+        try
         {
-            Console.WriteLine($"Failed to install event handler: {result}");
+            // Keep a reference to prevent GC
+            _callbackDelegate = EventTapCallback;
+
+            // We only care about key down events
+            ulong eventsOfInterest = (1UL << kCGEventKeyDown);
+
+            _eventTap = CGEventTapCreate(
+                kCGSessionEventTap,
+                kCGHeadInsertEventTap,
+                0, // kCGEventTapOptionDefault - we don't want to block events
+                eventsOfInterest,
+                _callbackDelegate,
+                IntPtr.Zero);
+
+            if (_eventTap == IntPtr.Zero)
+            {
+                Console.WriteLine("Failed to create event tap. Make sure accessibility permissions are granted.");
+                Console.WriteLine("Go to System Settings > Privacy & Security > Accessibility and add this app.");
+                return;
+            }
+
+            _runLoopSource = CFMachPortCreateRunLoopSource(IntPtr.Zero, _eventTap, 0);
+            if (_runLoopSource == IntPtr.Zero)
+            {
+                Console.WriteLine("Failed to create run loop source");
+                return;
+            }
+
+            // Get the current thread's run loop
+            _runLoop = CFRunLoopGetCurrent();
+
+            // Get the default mode string
+            var modesPtr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100); // kCFStringEncodingUTF8
+
+            CFRunLoopAddSource(_runLoop, _runLoopSource, modesPtr);
+            CGEventTapEnable(_eventTap, true);
+
+            CFRelease(modesPtr);
+
+            Console.WriteLine("Global hotkey event tap installed successfully");
+
+            // Signal that the event tap is ready
+            _eventTapReady.Set();
+
+            // Run the loop - this blocks until CFRunLoopStop is called
+            while (!_stopRequested)
+            {
+                CFRunLoopRun();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in hotkey thread: {ex.Message}");
+            _eventTapReady.Set(); // Signal anyway so callers don't hang
         }
     }
 
-    private int HotkeyHandler(IntPtr inHandlerCallRef, IntPtr inEvent, IntPtr inUserData)
+    private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
     {
-        var result = GetEventParameter(
-            inEvent,
-            typeEventHotKeyID,
-            typeEventHotKeyID,
-            IntPtr.Zero,
-            (uint)Marshal.SizeOf<EventHotKeyID>(),
-            IntPtr.Zero,
-            out EventHotKeyID hotkeyId);
-
-        if (result == 0 && _registeredHotkeys.TryGetValue(hotkeyId.id, out var entry))
+        // Handle event tap disabled events (type 0 = kCGEventTapDisabledByTimeout or kCGEventTapDisabledByUserInput)
+        if (type == 0)
         {
-            // Invoke callback on main thread
-            global::Avalonia.Threading.Dispatcher.UIThread.Post(() => entry.callback());
+            Console.WriteLine("Event tap was disabled, re-enabling...");
+            if (_eventTap != IntPtr.Zero)
+            {
+                CGEventTapEnable(_eventTap, true);
+            }
+            return eventRef;
         }
 
-        return 0; // noErr
+        if (type != kCGEventKeyDown)
+        {
+            return eventRef;
+        }
+
+        // Get the key code (field 9 = kCGKeyboardEventKeycode)
+        var keyCode = (uint)CGEventGetIntegerValueField(eventRef, 9);
+        var flags = CGEventGetFlags(eventRef);
+
+        // Check against registered hotkeys
+        foreach (var (registeredKeyCode, registeredModifiers, callback) in _registeredHotkeys)
+        {
+            if (keyCode == registeredKeyCode && ModifiersMatch(flags, registeredModifiers))
+            {
+                Console.WriteLine($"Hotkey triggered: keyCode=0x{keyCode:X2}");
+
+                // Invoke callback on UI thread
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        callback();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Hotkey callback error: {ex.Message}");
+                    }
+                });
+
+                // Don't consume the event - let it pass through
+                break;
+            }
+        }
+
+        return eventRef;
+    }
+
+    private bool ModifiersMatch(ulong eventFlags, ulong requiredModifiers)
+    {
+        // Mask out non-modifier flags
+        const ulong modifierMask = kCGEventFlagMaskCommand | kCGEventFlagMaskShift |
+                                   kCGEventFlagMaskAlternate | kCGEventFlagMaskControl;
+
+        var eventModifiers = eventFlags & modifierMask;
+
+        // Check if all required modifiers are present
+        return (eventModifiers & requiredModifiers) == requiredModifiers &&
+               // And no extra modifiers (optional - could be more lenient)
+               (eventModifiers & ~requiredModifiers) == 0;
     }
 
     /// <summary>
-    /// Register a global hotkey. Returns the hotkey ID, or 0 if registration failed.
+    /// Register a global hotkey. Returns true if successful.
     /// </summary>
     public uint Register(string hotkeyString, Action callback)
     {
         if (string.IsNullOrWhiteSpace(hotkeyString))
             return 0;
 
-        if (!ParseHotkey(hotkeyString, out uint keyCode, out uint modifiers))
+        // Wait for the event tap to be ready (with timeout)
+        if (!_eventTapReady.Wait(2000)) // Wait up to 2 seconds
+        {
+            Console.WriteLine("Timeout waiting for event tap - cannot register hotkey");
+            return 0;
+        }
+
+        if (_eventTap == IntPtr.Zero)
+        {
+            Console.WriteLine("Event tap not available - cannot register hotkey");
+            return 0;
+        }
+
+        if (!ParseHotkey(hotkeyString, out uint keyCode, out ulong modifiers))
         {
             Console.WriteLine($"Failed to parse hotkey: {hotkeyString}");
             return 0;
         }
 
-        var id = _nextId++;
-        var hotkeyId = new EventHotKeyID { signature = 0x574B4259, id = id }; // 'WKBY' signature
+        _registeredHotkeys.Add((keyCode, modifiers, callback));
+        Console.WriteLine($"Registered hotkey: {hotkeyString} (keyCode={keyCode:X}, modifiers={modifiers:X})");
 
-        var result = RegisterEventHotKey(
-            keyCode,
-            modifiers,
-            hotkeyId,
-            GetApplicationEventTarget(),
-            0,
-            out IntPtr hotkeyRef);
-
-        if (result != 0)
-        {
-            Console.WriteLine($"Failed to register hotkey '{hotkeyString}': error {result}");
-            return 0;
-        }
-
-        _registeredHotkeys[id] = (hotkeyRef, callback);
-        Console.WriteLine($"Registered hotkey: {hotkeyString} (id={id})");
-        return id;
-    }
-
-    /// <summary>
-    /// Unregister a hotkey by its ID.
-    /// </summary>
-    public void Unregister(uint id)
-    {
-        if (_registeredHotkeys.TryGetValue(id, out var entry))
-        {
-            UnregisterEventHotKey(entry.hotkeyRef);
-            _registeredHotkeys.Remove(id);
-            Console.WriteLine($"Unregistered hotkey id={id}");
-        }
+        return (uint)_registeredHotkeys.Count;
     }
 
     /// <summary>
@@ -205,14 +282,10 @@ public class GlobalHotkey : IDisposable
     /// </summary>
     public void UnregisterAll()
     {
-        foreach (var kvp in _registeredHotkeys)
-        {
-            UnregisterEventHotKey(kvp.Value.hotkeyRef);
-        }
         _registeredHotkeys.Clear();
     }
 
-    private bool ParseHotkey(string hotkeyString, out uint keyCode, out uint modifiers)
+    private bool ParseHotkey(string hotkeyString, out uint keyCode, out ulong modifiers)
     {
         keyCode = 0;
         modifiers = 0;
@@ -228,21 +301,21 @@ public class GlobalHotkey : IDisposable
             {
                 case "ctrl":
                 case "control":
-                    modifiers |= controlKey;
+                    modifiers |= kCGEventFlagMaskControl;
                     break;
                 case "alt":
                 case "option":
                 case "opt":
-                    modifiers |= optionKey;
+                    modifiers |= kCGEventFlagMaskAlternate;
                     break;
                 case "shift":
-                    modifiers |= shiftKey;
+                    modifiers |= kCGEventFlagMaskShift;
                     break;
                 case "cmd":
                 case "command":
                 case "win":
                 case "meta":
-                    modifiers |= cmdKey;
+                    modifiers |= kCGEventFlagMaskCommand;
                     break;
                 default:
                     // This should be the key
@@ -259,7 +332,7 @@ public class GlobalHotkey : IDisposable
             }
         }
 
-        return keyCode != 0 || modifiers != 0;
+        return keyCode != 0;
     }
 
     public void Dispose()
@@ -267,12 +340,40 @@ public class GlobalHotkey : IDisposable
         if (_disposed) return;
 
         UnregisterAll();
+        _stopRequested = true;
 
-        if (_eventHandlerRef != IntPtr.Zero)
+        // Stop the run loop
+        if (_runLoop != IntPtr.Zero)
         {
-            RemoveEventHandler(_eventHandlerRef);
-            _eventHandlerRef = IntPtr.Zero;
+            CFRunLoopStop(_runLoop);
         }
+
+        // Wait for thread to finish
+        if (_runLoopThread != null && _runLoopThread.IsAlive)
+        {
+            _runLoopThread.Join(1000); // Wait up to 1 second
+        }
+
+        if (_runLoopSource != IntPtr.Zero)
+        {
+            var modesPtr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100);
+            if (_runLoop != IntPtr.Zero)
+            {
+                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modesPtr);
+            }
+            CFRelease(modesPtr);
+            CFRelease(_runLoopSource);
+            _runLoopSource = IntPtr.Zero;
+        }
+
+        if (_eventTap != IntPtr.Zero)
+        {
+            CGEventTapEnable(_eventTap, false);
+            CFRelease(_eventTap);
+            _eventTap = IntPtr.Zero;
+        }
+
+        _eventTapReady.Dispose();
 
         _disposed = true;
     }
