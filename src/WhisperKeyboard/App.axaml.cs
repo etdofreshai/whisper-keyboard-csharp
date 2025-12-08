@@ -27,12 +27,18 @@ public partial class App : Application
             // Create a hidden window to keep the app running and provide clipboard access
             _hiddenWindow = new Window
             {
-                Width = 0,
-                Height = 0,
+                Width = 1,
+                Height = 1,
                 ShowInTaskbar = false,
-                WindowState = WindowState.Minimized,
                 SystemDecorations = SystemDecorations.None,
-                IsVisible = false
+                Opacity = 0,
+                Focusable = false,
+                CanResize = false,
+            };
+            // Position off-screen
+            _hiddenWindow.Opened += (s, e) =>
+            {
+                _hiddenWindow.Position = new PixelPoint(-10000, -10000);
             };
             desktop.MainWindow = _hiddenWindow;
 
