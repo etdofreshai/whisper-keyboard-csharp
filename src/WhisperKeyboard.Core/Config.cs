@@ -45,6 +45,11 @@ public class Config
     public bool ExitWordsEnabled { get; set; } = true;
     public List<string> ExitWords { get; set; } = new List<string> { "over", "enter", "submit" };
 
+    // Wake/Pause Word Settings
+    public bool WakeWordsEnabled { get; set; } = false;
+    public List<string> WakeWords { get; set; } = new List<string> { "start listening" };
+    public List<string> PauseWords { get; set; } = new List<string> { "stop listening" };
+
     // Hotkey Settings (empty string = disabled)
     public string ToggleRecordingHotkey { get; set; } = "";
     public string PauseResumeHotkey { get; set; } = "";

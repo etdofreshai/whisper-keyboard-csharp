@@ -20,9 +20,11 @@ public class WhisperKeyboardApp : IDisposable
     private readonly TranscriptionHistory _history;
     private readonly RecordingIndicator _recordingIndicator;
     private readonly GlobalHotkey _globalHotkey;
+    private readonly TextProcessor _textProcessor;
 
     private bool _isListening;
     private bool _isPaused;
+    private bool _isStandby; // True when wake words enabled and waiting for wake word
     private bool _isTranscribing;
     private DateTime _ignoreUntil = DateTime.MinValue;
     private bool _disposed;
@@ -50,6 +52,7 @@ public class WhisperKeyboardApp : IDisposable
 
         _recordingIndicator = new RecordingIndicator();
         _globalHotkey = new GlobalHotkey();
+        _textProcessor = new TextProcessor(_config);
 
         // Get clipboard from the main window (we'll create a hidden one)
         var clipboard = desktop.MainWindow?.Clipboard;
@@ -164,13 +167,25 @@ public class WhisperKeyboardApp : IDisposable
             _isListening = true;
             _isPaused = false;
 
-            UpdateStatus("Listening...");
+            // Determine initial state based on wake words setting
+            if (_config.WakeWordsEnabled)
+            {
+                _isStandby = true;
+                UpdateStatus("Standby");
+                _recordingIndicator.ResetToDefaultPosition();
+                _recordingIndicator.ShowStandby();
+            }
+            else
+            {
+                _isStandby = false;
+                UpdateStatus("Listening...");
+                _recordingIndicator.ResetToDefaultPosition();
+                _recordingIndicator.ShowListening();
+            }
+
             UpdateMenuState();
 
-            _recordingIndicator.ResetToDefaultPosition();
-            _recordingIndicator.ShowListening();
-
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening (standby: {_isStandby})");
         }
         catch (Exception ex)
         {
@@ -185,6 +200,7 @@ public class WhisperKeyboardApp : IDisposable
         _audioCapture.Stop();
         _isListening = false;
         _isPaused = false;
+        _isStandby = false;
 
         // Cancel any in-flight transcription
         _transcriptionCts?.Cancel();
@@ -199,50 +215,85 @@ public class WhisperKeyboardApp : IDisposable
 
     public void PauseListening()
     {
-        if (!_isListening || _isPaused) return;
+        if (!_isListening || _isPaused || _isStandby) return;
 
-        _audioCapture.Pause();
-        _isPaused = true;
+        if (_config.WakeWordsEnabled)
+        {
+            // Go to Standby (mic stays ON, waiting for wake word)
+            _isStandby = true;
+            _isPaused = false;
 
-        // Don't cancel transcription - let it complete in background
-        // When resumed, it will continue from where it left off
+            UpdateStatus("Standby");
+            UpdateMenuState();
 
-        UpdateStatus("Paused");
-        UpdateMenuState();
+            _recordingIndicator.SetPauseState(true); // Show play button
+            _recordingIndicator.ShowStandby();
 
-        _recordingIndicator.SetPauseState(true);
-        _recordingIndicator.ShowPaused();
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Entered Standby mode");
+        }
+        else
+        {
+            // Original pause behavior (mic OFF)
+            _audioCapture.Pause();
+            _isPaused = true;
+            _isStandby = false;
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Paused");
+            // Don't cancel transcription - let it complete in background
+            // When resumed, it will continue from where it left off
+
+            UpdateStatus("Paused");
+            UpdateMenuState();
+
+            _recordingIndicator.SetPauseState(true);
+            _recordingIndicator.ShowPaused();
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Paused");
+        }
     }
 
     public void ResumeListening()
     {
-        if (!_isListening || !_isPaused) return;
+        if (!_isListening) return;
 
-        // Check if we were recording speech before pause
-        bool wasRecording = _audioCapture.IsSpeechDetected;
+        // Handle both Paused (wake words disabled) and Standby (wake words enabled)
+        if (!_isPaused && !_isStandby) return;
 
-        _audioCapture.Resume();
-        _isPaused = false;
-
-        _recordingIndicator.SetPauseState(false);
-
-        // Restore the correct state based on what we were doing before pause
-        if (wasRecording)
+        if (_isPaused)
         {
-            UpdateStatus("Recording...");
-            _recordingIndicator.ShowRecording();
+            // Resume from Paused (mic was OFF)
+            bool wasRecording = _audioCapture.IsSpeechDetected;
+            _audioCapture.Resume();
+            _isPaused = false;
+
+            _recordingIndicator.SetPauseState(false);
+
+            // Restore the correct state based on what we were doing before pause
+            if (wasRecording)
+            {
+                UpdateStatus("Recording...");
+                _recordingIndicator.ShowRecording();
+            }
+            else
+            {
+                UpdateStatus("Listening...");
+                _recordingIndicator.ShowListening();
+            }
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed from pause (was recording: {wasRecording})");
         }
-        else
+        else if (_isStandby)
         {
+            // Resume from Standby to Active (mic was already ON)
+            _isStandby = false;
+
+            _recordingIndicator.SetPauseState(false);
             UpdateStatus("Listening...");
             _recordingIndicator.ShowListening();
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed from standby");
         }
 
         UpdateMenuState();
-
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Resumed (was recording: {wasRecording})");
     }
 
     private void UpdateStatus(string status)
@@ -267,7 +318,16 @@ public class WhisperKeyboardApp : IDisposable
             if (_pauseMenuItem != null)
             {
                 _pauseMenuItem.IsEnabled = _isListening;
-                _pauseMenuItem.Header = _isPaused ? "Resume" : "Pause";
+
+                // Update text based on current state
+                if (_isPaused || _isStandby)
+                {
+                    _pauseMenuItem.Header = "Resume";
+                }
+                else
+                {
+                    _pauseMenuItem.Header = _config.WakeWordsEnabled ? "Standby" : "Pause";
+                }
             }
         });
     }
@@ -288,14 +348,32 @@ public class WhisperKeyboardApp : IDisposable
         {
             if (isSpeaking)
             {
-                UpdateStatus("Recording...");
-                _recordingIndicator.ShowRecording();
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech detected - recording started");
+                if (_isStandby)
+                {
+                    // In standby mode, show that we're checking for wake word
+                    UpdateStatus("Checking for wake word...");
+                    _recordingIndicator.ShowRecordingStandby();
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech detected in standby - checking for wake word");
+                }
+                else
+                {
+                    UpdateStatus("Recording...");
+                    _recordingIndicator.ShowRecording();
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech detected - recording started");
+                }
             }
             else if (_isListening && !_isPaused && !_isTranscribing && !_showingTooShort)
             {
-                UpdateStatus("Listening...");
-                _recordingIndicator.ShowListening();
+                if (_isStandby)
+                {
+                    UpdateStatus("Standby");
+                    _recordingIndicator.ShowStandby();
+                }
+                else
+                {
+                    UpdateStatus("Listening...");
+                    _recordingIndicator.ShowListening();
+                }
             }
         });
     }
@@ -355,20 +433,16 @@ public class WhisperKeyboardApp : IDisposable
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribed: \"{result.Text}\"");
 
-                _history.AddEntry(result);
-
-                Dispatcher.UIThread.Post(() =>
+                // Handle wake word / pause word logic
+                if (_config.WakeWordsEnabled)
                 {
-                    UpdateStatus("Typing...");
-                    _recordingIndicator.ShowTyping();
-                });
-
-                await _textTyper.TypeTextAsync(result.Text);
-
-                // Ignore audio for 2 seconds after typing
-                _ignoreUntil = DateTime.Now.AddSeconds(2);
-
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typed successfully");
+                    await HandleWakeWordModeAsync(result);
+                }
+                else
+                {
+                    // Original behavior - type everything
+                    await TypeTranscriptionAsync(result);
+                }
             }
             else
             {
@@ -389,15 +463,116 @@ public class WhisperKeyboardApp : IDisposable
 
             if (_isListening && !_isPaused)
             {
-                // Delay before returning to listening mode
+                // Delay before returning to listening/standby mode
                 await Task.Delay(500);
                 Dispatcher.UIThread.Post(() =>
                 {
-                    UpdateStatus("Listening...");
-                    _recordingIndicator.ShowListening();
+                    if (_isStandby)
+                    {
+                        UpdateStatus("Standby");
+                        _recordingIndicator.ShowStandby();
+                    }
+                    else
+                    {
+                        UpdateStatus("Listening...");
+                        _recordingIndicator.ShowListening();
+                    }
                 });
             }
         }
+    }
+
+    private async Task HandleWakeWordModeAsync(TranscriptionResult result)
+    {
+        var text = result.Text;
+
+        if (_isStandby)
+        {
+            // In Standby mode - check for wake word
+            var (isWakeWord, remainingText) = _textProcessor.CheckWakeWord(text);
+
+            if (isWakeWord)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Wake word detected! Transitioning to Active mode.");
+
+                // Transition to Active
+                _isStandby = false;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _recordingIndicator.SetPauseState(false);
+                    UpdateStatus("Listening...");
+                    _recordingIndicator.ShowListening();
+                    UpdateMenuState();
+                });
+
+                // If there's remaining text after the wake word, type it
+                if (!string.IsNullOrWhiteSpace(remainingText))
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typing remaining text after wake word: \"{remainingText}\"");
+                    await TypeTextAsync(remainingText);
+                }
+            }
+            else
+            {
+                // Not a wake word - discard transcription
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] In Standby mode - discarding transcription (no wake word)");
+            }
+        }
+        else
+        {
+            // In Active mode - check for pause word
+            if (_textProcessor.CheckPauseWord(text))
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Pause word detected! Transitioning to Standby mode.");
+
+                // Transition to Standby
+                _isStandby = true;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _recordingIndicator.SetPauseState(true);
+                    UpdateStatus("Standby");
+                    _recordingIndicator.ShowStandby();
+                    UpdateMenuState();
+                });
+
+                // Don't type anything
+            }
+            else
+            {
+                // Normal transcription - type it
+                await TypeTranscriptionAsync(result);
+            }
+        }
+    }
+
+    private async Task TypeTranscriptionAsync(TranscriptionResult result)
+    {
+        _history.AddEntry(result);
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Typing...");
+            _recordingIndicator.ShowTyping();
+        });
+
+        await _textTyper.TypeTextAsync(result.Text);
+        _ignoreUntil = DateTime.Now.AddSeconds(2);
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typed successfully");
+    }
+
+    private async Task TypeTextAsync(string text)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Typing...");
+            _recordingIndicator.ShowTyping();
+        });
+
+        await _textTyper.TypeTextAsync(text);
+        _ignoreUntil = DateTime.Now.AddSeconds(2);
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typed successfully");
     }
 
     public void ShowSettings()

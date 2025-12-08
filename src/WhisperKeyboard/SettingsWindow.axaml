@@ -86,6 +86,22 @@
                             <TextBox x:Name="ExitWordsBox" Watermark="over, enter, submit" Margin="20,0,0,0"/>
                             <TextBlock Text="Words are removed from text, then Enter is pressed" FontSize="10" Foreground="#666666" Margin="20,0,0,0"/>
                         </StackPanel>
+
+                        <StackPanel Spacing="5" Margin="0,15,0,0">
+                            <CheckBox x:Name="WakeWordsCheck" Content="Enable wake/pause words (voice-activated mode)"/>
+
+                            <StackPanel Spacing="5" Margin="20,5,0,0">
+                                <TextBlock Text="Wake words (activate from standby):" FontSize="12" Foreground="#888888"/>
+                                <TextBox x:Name="WakeWordsBox" Watermark="start listening, hey whisper"/>
+                                <TextBlock Text="Say at the beginning to start transcribing" FontSize="10" Foreground="#666666"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="5" Margin="20,10,0,0">
+                                <TextBlock Text="Pause words (return to standby):" FontSize="12" Foreground="#888888"/>
+                                <TextBox x:Name="PauseWordsBox" Watermark="stop listening, go to sleep"/>
+                                <TextBlock Text="Say ONLY this phrase to pause" FontSize="10" Foreground="#666666"/>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

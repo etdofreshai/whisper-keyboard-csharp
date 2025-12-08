@@ -315,6 +315,39 @@ public partial class RecordingIndicator : Window
         if (!IsVisible) Show();
     }
 
+    public void ShowStandby()
+    {
+        _isRecording = false;
+        _isPaused = true; // Reuse pause visual state for button
+        StatusText.Text = "Standby";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 180, 100)); // Same yellow/orange as Paused
+        TimerText.IsVisible = false;
+        Opacity = PausedOpacity; // Set immediately
+
+        UpdatePauseButtonState();
+        // Stop timers - freeze waveform like paused state
+        _recordingTimer.Stop();
+        _updateTimer.Stop();
+
+        if (!IsVisible) Show();
+    }
+
+    public void ShowRecordingStandby()
+    {
+        _isRecording = true; // Show waveform animation
+        _recordingStartTime = DateTime.Now;
+        StatusText.Text = "Wake word?";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 200, 100)); // Orange/yellow to indicate standby recording
+        TimerText.Text = "0.0s";
+        TimerText.IsVisible = true;
+        _targetOpacity = ActiveOpacity;
+
+        _updateTimer.Start();
+        _recordingTimer.Start();
+
+        if (!IsVisible) Show();
+    }
+
     public async void ShowTooShort()
     {
         _isRecording = false;

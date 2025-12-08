@@ -109,6 +109,11 @@ public partial class SettingsWindow : Window
         ExitWordsCheck.IsChecked = _config.ExitWordsEnabled;
         ExitWordsBox.Text = string.Join(", ", _config.ExitWords);
 
+        // Wake/Pause word settings
+        WakeWordsCheck.IsChecked = _config.WakeWordsEnabled;
+        WakeWordsBox.Text = string.Join(", ", _config.WakeWords);
+        PauseWordsBox.Text = string.Join(", ", _config.PauseWords);
+
         // General settings
         StartOnLoginCheck.IsChecked = _config.StartOnLogin;
         StartListeningOnLaunchCheck.IsChecked = _config.StartListeningOnLaunch;
@@ -166,6 +171,15 @@ public partial class SettingsWindow : Window
         _config.AutoEnter = AutoEnterCheck.IsChecked ?? false;
         _config.ExitWordsEnabled = ExitWordsCheck.IsChecked ?? true;
         _config.ExitWords = (ExitWordsBox.Text ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        // Wake/Pause word settings
+        _config.WakeWordsEnabled = WakeWordsCheck.IsChecked ?? false;
+        _config.WakeWords = (WakeWordsBox.Text ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        _config.PauseWords = (PauseWordsBox.Text ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
 

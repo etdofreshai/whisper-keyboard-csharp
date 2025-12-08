@@ -83,4 +83,60 @@ public class TextProcessor
 
         return (text, shouldEnter);
     }
+
+    /// <summary>
+    /// Check if the transcription starts with a wake word.
+    /// Wake words must appear at the START of the transcription.
+    /// </summary>
+    /// <param name="text">Raw transcribed text</param>
+    /// <returns>Tuple of (isWakeWord, remainingText after wake word stripped)</returns>
+    public (bool isWakeWord, string remainingText) CheckWakeWord(string text)
+    {
+        if (!_config.WakeWordsEnabled || _config.WakeWords.Count == 0)
+            return (false, text);
+
+        text = text.Trim();
+
+        foreach (var wakeWord in _config.WakeWords)
+        {
+            if (text.StartsWith(wakeWord, StringComparison.OrdinalIgnoreCase))
+            {
+                // Strip the wake word from the beginning
+                var remaining = text.Substring(wakeWord.Length).TrimStart();
+                // Also strip common punctuation that might follow the wake word
+                remaining = remaining.TrimStart(',', '.', '!', '?', ';', ':');
+                remaining = remaining.TrimStart();
+                return (true, remaining);
+            }
+        }
+
+        return (false, text);
+    }
+
+    /// <summary>
+    /// Check if the transcription consists ONLY of a pause word.
+    /// Pause words must be the ENTIRE transcription content (after trimming).
+    /// </summary>
+    /// <param name="text">Raw transcribed text</param>
+    /// <returns>True if the text matches a pause word exactly</returns>
+    public bool CheckPauseWord(string text)
+    {
+        if (!_config.WakeWordsEnabled || _config.PauseWords.Count == 0)
+            return false;
+
+        text = text.Trim();
+
+        // Strip common trailing punctuation that Whisper might add
+        text = text.TrimEnd('.', '!', '?', ',', ';', ':');
+
+        foreach (var pauseWord in _config.PauseWords)
+        {
+            if (text.Equals(pauseWord, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
