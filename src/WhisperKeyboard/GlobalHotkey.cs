@@ -1,17 +1,410 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
 namespace WhisperKeyboard;
 
 /// <summary>
+/// Cross-platform global hotkey implementation.
+/// Uses Win32 RegisterHotKey on Windows, CGEventTap on macOS.
+/// </summary>
+public class GlobalHotkey : IDisposable
+{
+    private readonly IGlobalHotkeyImpl _impl;
+
+    public GlobalHotkey()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            _impl = new WindowsGlobalHotkey();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            _impl = new MacOSGlobalHotkey();
+        }
+        else
+        {
+            _impl = new NullGlobalHotkey();
+        }
+    }
+
+    public uint Register(string hotkeyString, Action callback)
+    {
+        return _impl.Register(hotkeyString, callback);
+    }
+
+    public void UnregisterAll()
+    {
+        _impl.UnregisterAll();
+    }
+
+    public void Dispose()
+    {
+        _impl.Dispose();
+    }
+}
+
+internal interface IGlobalHotkeyImpl : IDisposable
+{
+    uint Register(string hotkeyString, Action callback);
+    void UnregisterAll();
+}
+
+/// <summary>
+/// Null implementation for unsupported platforms.
+/// </summary>
+internal class NullGlobalHotkey : IGlobalHotkeyImpl
+{
+    public uint Register(string hotkeyString, Action callback)
+    {
+        Console.WriteLine($"Global hotkeys not supported on this platform");
+        return 0;
+    }
+
+    public void UnregisterAll() { }
+    public void Dispose() { }
+}
+
+/// <summary>
+/// Windows global hotkey implementation using Win32 RegisterHotKey.
+/// </summary>
+internal class WindowsGlobalHotkey : IGlobalHotkeyImpl
+{
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CreateWindowEx(
+        uint dwExStyle, string lpClassName, string lpWindowName,
+        uint dwStyle, int x, int y, int nWidth, int nHeight,
+        IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    // Modifier key constants
+    private const uint MOD_ALT = 0x0001;
+    private const uint MOD_CONTROL = 0x0002;
+    private const uint MOD_SHIFT = 0x0004;
+    private const uint MOD_WIN = 0x0008;
+    private const uint MOD_NOREPEAT = 0x4000;
+
+    // Message constants
+    private const uint WM_HOTKEY = 0x0312;
+    private const uint WM_QUIT = 0x0012;
+    private const uint WM_USER = 0x0400;
+    private const uint WM_REGISTER_HOTKEY = WM_USER + 1;
+    private const uint PM_REMOVE = 0x0001;
+
+    private readonly Dictionary<int, Action> _callbacks = new();
+    private readonly ConcurrentQueue<(int id, uint modifiers, uint vk, Action callback, TaskCompletionSource<bool> tcs)> _pendingRegistrations = new();
+    private int _nextId = 1;
+    private IntPtr _hwnd;
+    private uint _messageThreadId;
+    private Thread? _messageThread;
+    private volatile bool _disposed;
+    private readonly ManualResetEventSlim _windowReady = new(false);
+
+    // Virtual key codes
+    private static readonly Dictionary<string, uint> VirtualKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Letters
+        { "A", 0x41 }, { "B", 0x42 }, { "C", 0x43 }, { "D", 0x44 }, { "E", 0x45 },
+        { "F", 0x46 }, { "G", 0x47 }, { "H", 0x48 }, { "I", 0x49 }, { "J", 0x4A },
+        { "K", 0x4B }, { "L", 0x4C }, { "M", 0x4D }, { "N", 0x4E }, { "O", 0x4F },
+        { "P", 0x50 }, { "Q", 0x51 }, { "R", 0x52 }, { "S", 0x53 }, { "T", 0x54 },
+        { "U", 0x55 }, { "V", 0x56 }, { "W", 0x57 }, { "X", 0x58 }, { "Y", 0x59 },
+        { "Z", 0x5A },
+        // Numbers
+        { "0", 0x30 }, { "1", 0x31 }, { "2", 0x32 }, { "3", 0x33 }, { "4", 0x34 },
+        { "5", 0x35 }, { "6", 0x36 }, { "7", 0x37 }, { "8", 0x38 }, { "9", 0x39 },
+        // Function keys
+        { "F1", 0x70 }, { "F2", 0x71 }, { "F3", 0x72 }, { "F4", 0x73 },
+        { "F5", 0x74 }, { "F6", 0x75 }, { "F7", 0x76 }, { "F8", 0x77 },
+        { "F9", 0x78 }, { "F10", 0x79 }, { "F11", 0x7A }, { "F12", 0x7B },
+        // Special keys
+        { "Space", 0x20 }, { "Return", 0x0D }, { "Enter", 0x0D }, { "Tab", 0x09 },
+        { "Escape", 0x1B }, { "Delete", 0x2E }, { "Backspace", 0x08 },
+        { "Up", 0x26 }, { "Down", 0x28 }, { "Left", 0x25 }, { "Right", 0x27 },
+        { "Home", 0x24 }, { "End", 0x23 }, { "PageUp", 0x21 }, { "PageDown", 0x22 },
+    };
+
+    public WindowsGlobalHotkey()
+    {
+        _messageThread = new Thread(MessageLoop)
+        {
+            Name = "GlobalHotkeyThread",
+            IsBackground = true
+        };
+        _messageThread.Start();
+
+        // Wait for window to be created
+        if (!_windowReady.Wait(5000))
+        {
+            Console.WriteLine("Timeout waiting for hotkey window to be created");
+        }
+    }
+
+    private void MessageLoop()
+    {
+        try
+        {
+            _messageThreadId = GetCurrentThreadId();
+
+            // Create a message-only window to receive hotkey messages
+            _hwnd = CreateWindowEx(
+                0, "STATIC", "WhisperKeyboard Hotkey Window",
+                0, 0, 0, 0, 0,
+                new IntPtr(-3), // HWND_MESSAGE - message-only window
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+            if (_hwnd == IntPtr.Zero)
+            {
+                Console.WriteLine($"Failed to create hotkey window. Error: {Marshal.GetLastWin32Error()}");
+                _windowReady.Set();
+                return;
+            }
+
+            Console.WriteLine("Global hotkey window created successfully");
+            _windowReady.Set();
+
+            // Message loop
+            while (!_disposed && GetMessage(out MSG msg, IntPtr.Zero, 0, 0))
+            {
+                if (msg.message == WM_HOTKEY)
+                {
+                    int id = (int)msg.wParam;
+                    if (_callbacks.TryGetValue(id, out var callback))
+                    {
+                        Console.WriteLine($"Hotkey triggered: id={id}");
+                        // Invoke on UI thread
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            try
+                            {
+                                callback();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Hotkey callback error: {ex.Message}");
+                            }
+                        });
+                    }
+                }
+                else if (msg.message == WM_REGISTER_HOTKEY)
+                {
+                    // Process pending registrations from the message thread
+                    ProcessPendingRegistrations();
+                }
+                else
+                {
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in hotkey message loop: {ex.Message}");
+            _windowReady.Set();
+        }
+    }
+
+    private void ProcessPendingRegistrations()
+    {
+        while (_pendingRegistrations.TryDequeue(out var reg))
+        {
+            bool success = RegisterHotKey(_hwnd, reg.id, reg.modifiers | MOD_NOREPEAT, reg.vk);
+            if (success)
+            {
+                _callbacks[reg.id] = reg.callback;
+                Console.WriteLine($"Registered hotkey: id={reg.id}, modifiers=0x{reg.modifiers:X}, vk=0x{reg.vk:X}");
+            }
+            else
+            {
+                Console.WriteLine($"Failed to register hotkey: id={reg.id}. Error: {Marshal.GetLastWin32Error()}");
+            }
+            reg.tcs.SetResult(success);
+        }
+    }
+
+    public uint Register(string hotkeyString, Action callback)
+    {
+        if (string.IsNullOrWhiteSpace(hotkeyString))
+            return 0;
+
+        if (!_windowReady.Wait(2000))
+        {
+            Console.WriteLine("Hotkey window not ready - cannot register hotkey");
+            return 0;
+        }
+
+        if (_hwnd == IntPtr.Zero)
+        {
+            Console.WriteLine("Hotkey window not available - cannot register hotkey");
+            return 0;
+        }
+
+        if (!ParseHotkey(hotkeyString, out uint modifiers, out uint vk))
+        {
+            Console.WriteLine($"Failed to parse hotkey: {hotkeyString}");
+            return 0;
+        }
+
+        int id = _nextId++;
+
+        // Queue the registration and post a message to process it on the message thread
+        var tcs = new TaskCompletionSource<bool>();
+        _pendingRegistrations.Enqueue((id, modifiers, vk, callback, tcs));
+        PostThreadMessage(_messageThreadId, WM_REGISTER_HOTKEY, IntPtr.Zero, IntPtr.Zero);
+
+        // Wait for the registration to complete (with timeout)
+        if (tcs.Task.Wait(2000) && tcs.Task.Result)
+        {
+            Console.WriteLine($"Registered hotkey: {hotkeyString} (id={id}, modifiers=0x{modifiers:X}, vk=0x{vk:X})");
+            return (uint)id;
+        }
+        else
+        {
+            Console.WriteLine($"Failed to register hotkey: {hotkeyString}");
+            return 0;
+        }
+    }
+
+    public void UnregisterAll()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+
+        foreach (var id in _callbacks.Keys)
+        {
+            UnregisterHotKey(_hwnd, id);
+        }
+        _callbacks.Clear();
+    }
+
+    private bool ParseHotkey(string hotkeyString, out uint modifiers, out uint vk)
+    {
+        modifiers = 0;
+        vk = 0;
+
+        var parts = hotkeyString.Split('+').Select(p => p.Trim()).ToArray();
+        if (parts.Length == 0)
+            return false;
+
+        foreach (var part in parts)
+        {
+            var lower = part.ToLowerInvariant();
+            switch (lower)
+            {
+                case "ctrl":
+                case "control":
+                    modifiers |= MOD_CONTROL;
+                    break;
+                case "alt":
+                case "option":
+                case "opt":
+                    modifiers |= MOD_ALT;
+                    break;
+                case "shift":
+                    modifiers |= MOD_SHIFT;
+                    break;
+                case "win":
+                case "windows":
+                case "cmd":
+                case "command":
+                case "meta":
+                    modifiers |= MOD_WIN;
+                    break;
+                default:
+                    // This should be the key
+                    if (VirtualKeys.TryGetValue(part, out var code))
+                    {
+                        vk = code;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Unknown key: {part}");
+                        return false;
+                    }
+                    break;
+            }
+        }
+
+        return vk != 0;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        UnregisterAll();
+
+        if (_messageThreadId != 0)
+        {
+            // Post WM_QUIT to exit the message loop
+            PostThreadMessage(_messageThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        if (_hwnd != IntPtr.Zero)
+        {
+            DestroyWindow(_hwnd);
+            _hwnd = IntPtr.Zero;
+        }
+
+        _messageThread?.Join(1000);
+        _windowReady.Dispose();
+    }
+}
+
+/// <summary>
 /// macOS global hotkey implementation using CGEventTap.
 /// Requires accessibility permissions to work properly.
 /// </summary>
-public class GlobalHotkey : IDisposable
+internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
 {
     // CGEvent types
     private const int kCGEventKeyDown = 10;
     private const int kCGEventFlagsChanged = 12;
-    private const int kCGEventNull = 0; // NULL event for tap disabled
+    private const int kCGEventNull = 0;
 
     // CGEvent flags (modifier keys)
     private const ulong kCGEventFlagMaskCommand = 0x00100000;
@@ -108,7 +501,7 @@ public class GlobalHotkey : IDisposable
         { "Home", 0x73 }, { "End", 0x77 }, { "PageUp", 0x74 }, { "PageDown", 0x79 },
     };
 
-    public GlobalHotkey()
+    public MacOSGlobalHotkey()
     {
         // Start the event tap on a background thread with its own run loop
         _runLoopThread = new Thread(RunEventTapThread)
@@ -210,7 +603,7 @@ public class GlobalHotkey : IDisposable
                 Console.WriteLine($"Hotkey triggered: keyCode=0x{keyCode:X2}");
 
                 // Invoke callback on UI thread
-                global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     try
                     {
@@ -244,9 +637,6 @@ public class GlobalHotkey : IDisposable
                (eventModifiers & ~requiredModifiers) == 0;
     }
 
-    /// <summary>
-    /// Register a global hotkey. Returns true if successful.
-    /// </summary>
     public uint Register(string hotkeyString, Action callback)
     {
         if (string.IsNullOrWhiteSpace(hotkeyString))
@@ -277,9 +667,6 @@ public class GlobalHotkey : IDisposable
         return (uint)_registeredHotkeys.Count;
     }
 
-    /// <summary>
-    /// Unregister all hotkeys.
-    /// </summary>
     public void UnregisterAll()
     {
         _registeredHotkeys.Clear();
