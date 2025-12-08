@@ -165,26 +165,15 @@ public class WhisperKeyboardApp : IDisposable
             _audioCapture.Start();
             _isListening = true;
             _isPaused = false;
+            _isStandby = false; // Always start in active listening mode
 
-            // Determine initial state based on wake words setting
-            if (_config.WakeWordsEnabled)
-            {
-                _isStandby = true;
-                UpdateStatus("Standby");
-                _recordingIndicator.ResetToDefaultPosition();
-                _recordingIndicator.ShowStandby();
-            }
-            else
-            {
-                _isStandby = false;
-                UpdateStatus("Listening...");
-                _recordingIndicator.ResetToDefaultPosition();
-                _recordingIndicator.ShowListening();
-            }
+            UpdateStatus("Listening...");
+            _recordingIndicator.ResetToDefaultPosition();
+            _recordingIndicator.ShowListening();
 
             UpdateMenuState();
 
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening (standby: {_isStandby})");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening");
         }
         catch (Exception ex)
         {
