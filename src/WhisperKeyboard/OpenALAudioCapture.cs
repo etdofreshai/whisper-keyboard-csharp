@@ -23,10 +23,9 @@ public class OpenALAudioCapture : IAudioCapture
     private DateTime _speechStartTime;
     private TimeSpan _accumulatedSpeechDuration;
 
-    public event EventHandler<byte[]>? AudioReady;
+    public event EventHandler<AudioReadyEventArgs>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
     public event EventHandler<bool>? SpeechDetected;
-    public event EventHandler? AudioTooShort;
 
     public bool IsRecording => _isRunning;
     public bool IsPaused => _isPaused;
@@ -259,32 +258,29 @@ public class OpenALAudioCapture : IAudioCapture
 
     private void FinalizeAudio()
     {
-        // Calculate total duration of the recording (including silence within the phrase)
+        // Calculate duration from first speech to last speech (excluding trailing silence)
+        // This is the "speech span" - from when speech started to when it last ended
+        var speechSpanDuration = _lastSpeechTime - _speechStartTime;
+        var speechDuration = _accumulatedSpeechDuration;
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Finalizing audio. Speech Span: {speechSpanDuration.TotalSeconds:F2}s, Active Speech: {speechDuration.TotalSeconds:F2}s");
+
+        // Always send audio - let the application layer decide based on transcription result
         long totalBytes = _audioBuffer.Sum(b => b.Length);
-        double durationSeconds = (double)totalBytes / (_config.SampleRate * 2); // 16-bit = 2 bytes
+        var combinedAudio = new byte[totalBytes];
+        int offset = 0;
 
-        // Check if the TOTAL duration (start to finish) meets the minimum
-        if (durationSeconds >= _config.MinAudioDuration)
+        foreach (var chunk in _audioBuffer)
         {
-            var combinedAudio = new byte[totalBytes];
-            int offset = 0;
-
-            foreach (var chunk in _audioBuffer)
-            {
-                Array.Copy(chunk, 0, combinedAudio, offset, chunk.Length);
-                offset += chunk.Length;
-            }
-
-            AudioReady?.Invoke(this, combinedAudio);
+            Array.Copy(chunk, 0, combinedAudio, offset, chunk.Length);
+            offset += chunk.Length;
         }
-        else
-        {
-            Console.WriteLine($"Discarded audio: Duration {durationSeconds:F2}s < Min {_config.MinAudioDuration}s");
-            AudioTooShort?.Invoke(this, EventArgs.Empty);
-        }
+
+        AudioReady?.Invoke(this, new AudioReadyEventArgs(combinedAudio, speechSpanDuration, speechDuration));
 
         // Reset state
         _audioBuffer.Clear();
+        _accumulatedSpeechDuration = TimeSpan.Zero;
         _isSpeechDetected = false;
         SpeechDetected?.Invoke(this, false);
     }

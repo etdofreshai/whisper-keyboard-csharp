@@ -107,7 +107,7 @@ public partial class MainWindow : Window
         });
     }
 
-    private async void OnAudioReady(object? sender, byte[] audioData)
+    private async void OnAudioReady(object? sender, AudioReadyEventArgs e)
     {
         if (_isTranscribing || _transcriber == null) return;
 
@@ -122,7 +122,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await _transcriber.TranscribeAsync(audioData);
+            var result = await _transcriber.TranscribeAsync(e.AudioData);
 
             if (result != null && !string.IsNullOrWhiteSpace(result.Text))
             {

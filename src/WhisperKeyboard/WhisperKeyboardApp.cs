@@ -62,7 +62,6 @@ public class WhisperKeyboardApp : IDisposable
         _audioCapture.VolumeChanged += OnVolumeChanged;
         _audioCapture.SpeechDetected += OnSpeechDetected;
         _audioCapture.AudioReady += OnAudioReady;
-        _audioCapture.AudioTooShort += OnAudioTooShort;
 
         // Setup recording indicator events
         _recordingIndicator.OnPauseClicked += () =>
@@ -378,18 +377,7 @@ public class WhisperKeyboardApp : IDisposable
         });
     }
 
-    private void OnAudioTooShort(object? sender, EventArgs e)
-    {
-        Dispatcher.UIThread.Post(async () =>
-        {
-            _showingTooShort = true;
-            _recordingIndicator.ShowTooShort();
-            await Task.Delay(1000); // Keep flag active long enough for ShowTooShort to complete
-            _showingTooShort = false;
-        });
-    }
-
-    private async void OnAudioReady(object? sender, byte[] audioData)
+    private async void OnAudioReady(object? sender, AudioReadyEventArgs e)
     {
         if (_isTranscribing)
         {
@@ -401,6 +389,9 @@ public class WhisperKeyboardApp : IDisposable
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping - in ignore period");
             return;
         }
+
+        var audioData = e.AudioData;
+        var totalDuration = e.TotalDuration;
 
         _isTranscribing = true;
 
@@ -415,7 +406,7 @@ public class WhisperKeyboardApp : IDisposable
             _recordingIndicator.ShowTranscribing();
         });
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, sending to API...");
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, sending to API...");
 
         try
         {
@@ -436,12 +427,20 @@ public class WhisperKeyboardApp : IDisposable
                 // Handle wake word / pause word logic
                 if (_config.WakeWordsEnabled)
                 {
-                    await HandleWakeWordModeAsync(result);
+                    await HandleWakeWordModeAsync(result, totalDuration);
                 }
                 else
                 {
-                    // Original behavior - type everything
-                    await TypeTranscriptionAsync(result);
+                    // Check minimum duration - if too short and not a special command, show "Too short"
+                    if (totalDuration.TotalSeconds < _config.MinAudioDuration)
+                    {
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{result.Text}\"");
+                        ShowTooShort();
+                    }
+                    else
+                    {
+                        await TypeTranscriptionAsync(result);
+                    }
                 }
             }
             else
@@ -482,13 +481,24 @@ public class WhisperKeyboardApp : IDisposable
         }
     }
 
-    private async Task HandleWakeWordModeAsync(TranscriptionResult result)
+    private void ShowTooShort()
+    {
+        Dispatcher.UIThread.Post(async () =>
+        {
+            _showingTooShort = true;
+            _recordingIndicator.ShowTooShort();
+            await Task.Delay(1000);
+            _showingTooShort = false;
+        });
+    }
+
+    private async Task HandleWakeWordModeAsync(TranscriptionResult result, TimeSpan totalDuration)
     {
         var text = result.Text;
 
         if (_isStandby)
         {
-            // In Standby mode - check for wake word
+            // In Standby mode - check for wake word (no minimum duration check)
             var (isWakeWord, remainingText) = _textProcessor.CheckWakeWord(text);
 
             if (isWakeWord)
@@ -520,7 +530,7 @@ public class WhisperKeyboardApp : IDisposable
         }
         else
         {
-            // In Active mode - check for pause word
+            // In Active mode - check for pause word first (pause words bypass min duration)
             if (_textProcessor.CheckPauseWord(text))
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Pause word detected! Transitioning to Standby mode.");
@@ -539,8 +549,17 @@ public class WhisperKeyboardApp : IDisposable
             }
             else
             {
-                // Normal transcription - type it
-                await TypeTranscriptionAsync(result);
+                // Not a pause word - check minimum duration before typing
+                if (totalDuration.TotalSeconds < _config.MinAudioDuration)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{text}\"");
+                    ShowTooShort();
+                }
+                else
+                {
+                    // Normal transcription - type it
+                    await TypeTranscriptionAsync(result);
+                }
             }
         }
     }
