@@ -314,6 +314,28 @@ public partial class RecordingIndicator : Window
         if (!IsVisible) Show();
     }
 
+    public async void ShowTooShort()
+    {
+        _isRecording = false;
+        StatusText.Text = "Too short";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 220, 100)); // Yellow
+        TimerText.Text = "";
+        Opacity = ActiveOpacity; // Make it visible
+
+        _recordingTimer.Stop();
+
+        if (!IsVisible) Show();
+
+        // Wait briefly then return to listening
+        await Task.Delay(800);
+
+        // Only return to listening if we're still in "Too short" state
+        if (StatusText.Text == "Too short")
+        {
+            ShowListening();
+        }
+    }
+
     public void ClearVolumeHistory()
     {
         Array.Clear(_volumeHistory, 0, _volumeHistory.Length);

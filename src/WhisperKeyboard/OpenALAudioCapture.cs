@@ -26,6 +26,7 @@ public class OpenALAudioCapture : IAudioCapture
     public event EventHandler<byte[]>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
     public event EventHandler<bool>? SpeechDetected;
+    public event EventHandler? AudioTooShort;
 
     public bool IsRecording => _isRunning;
     public bool IsPaused => _isPaused;
@@ -279,6 +280,7 @@ public class OpenALAudioCapture : IAudioCapture
         else
         {
             Console.WriteLine($"Discarded audio: Duration {durationSeconds:F2}s < Min {_config.MinAudioDuration}s");
+            AudioTooShort?.Invoke(this, EventArgs.Empty);
         }
 
         // Reset state

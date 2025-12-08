@@ -59,6 +59,7 @@ public class WhisperKeyboardApp : IDisposable
         _audioCapture.VolumeChanged += OnVolumeChanged;
         _audioCapture.SpeechDetected += OnSpeechDetected;
         _audioCapture.AudioReady += OnAudioReady;
+        _audioCapture.AudioTooShort += OnAudioTooShort;
 
         // Setup recording indicator events
         _recordingIndicator.OnPauseClicked += () =>
@@ -279,6 +280,8 @@ public class WhisperKeyboardApp : IDisposable
         });
     }
 
+    private bool _showingTooShort;
+
     private void OnSpeechDetected(object? sender, bool isSpeaking)
     {
         Dispatcher.UIThread.Post(() =>
@@ -289,11 +292,22 @@ public class WhisperKeyboardApp : IDisposable
                 _recordingIndicator.ShowRecording();
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech detected - recording started");
             }
-            else if (_isListening && !_isPaused && !_isTranscribing)
+            else if (_isListening && !_isPaused && !_isTranscribing && !_showingTooShort)
             {
                 UpdateStatus("Listening...");
                 _recordingIndicator.ShowListening();
             }
+        });
+    }
+
+    private void OnAudioTooShort(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(async () =>
+        {
+            _showingTooShort = true;
+            _recordingIndicator.ShowTooShort();
+            await Task.Delay(1000); // Keep flag active long enough for ShowTooShort to complete
+            _showingTooShort = false;
         });
     }
 

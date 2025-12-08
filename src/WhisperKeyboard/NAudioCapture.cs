@@ -23,6 +23,7 @@ public class NAudioCapture : IAudioCapture
     public event EventHandler<byte[]>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
     public event EventHandler<bool>? SpeechDetected;
+    public event EventHandler? AudioTooShort;
 
     public bool IsRecording => _isRecording;
     public bool IsPaused { get; private set; }
@@ -223,6 +224,7 @@ public class NAudioCapture : IAudioCapture
         else
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Discarded audio: Duration {durationSeconds:F2}s < Min {_config.MinAudioDuration}s");
+            AudioTooShort?.Invoke(this, EventArgs.Empty);
         }
 
         // Reset state

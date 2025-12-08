@@ -22,6 +22,11 @@ public interface IAudioCapture : IDisposable
     event EventHandler<bool>? SpeechDetected;
 
     /// <summary>
+    /// Fired when audio is discarded because it was too short.
+    /// </summary>
+    event EventHandler? AudioTooShort;
+
+    /// <summary>
     /// Whether audio capture is currently active.
     /// </summary>
     bool IsRecording { get; }
