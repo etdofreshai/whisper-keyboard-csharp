@@ -251,6 +251,7 @@ public partial class RecordingIndicator : Window
         StatusText.Text = "Recording";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(100, 255, 100));
         TimerText.Text = "0.0s";
+        TimerText.IsVisible = true;
         _targetOpacity = ActiveOpacity;
 
         _updateTimer.Start();
@@ -265,7 +266,7 @@ public partial class RecordingIndicator : Window
         _isPaused = false;
         StatusText.Text = "Listening...";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(150, 180, 150));
-        TimerText.Text = "";
+        TimerText.IsVisible = false;
         _targetOpacity = ListeningOpacity;
 
         UpdatePauseButtonState();
@@ -280,7 +281,7 @@ public partial class RecordingIndicator : Window
         _isRecording = false;
         StatusText.Text = "Transcribing...";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 255));
-        TimerText.Text = "";
+        TimerText.IsVisible = false;
         _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
@@ -291,7 +292,7 @@ public partial class RecordingIndicator : Window
         _isRecording = false;
         StatusText.Text = "Typing...";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 150));
-        TimerText.Text = "";
+        TimerText.IsVisible = false;
         _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
@@ -319,7 +320,7 @@ public partial class RecordingIndicator : Window
         _isRecording = false;
         StatusText.Text = "Too short";
         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 220, 100)); // Yellow
-        TimerText.Text = "";
+        TimerText.IsVisible = false;
         Opacity = ActiveOpacity; // Make it visible
 
         _recordingTimer.Stop();
