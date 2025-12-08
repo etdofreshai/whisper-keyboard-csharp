@@ -66,7 +66,7 @@ public class WhisperKeyboardApp : IDisposable
         // Setup recording indicator events
         _recordingIndicator.OnPauseClicked += () =>
         {
-            if (_isPaused)
+            if (_isPaused || _isStandby)
                 ResumeListening();
             else
                 PauseListening();
@@ -432,13 +432,19 @@ public class WhisperKeyboardApp : IDisposable
                 else
                 {
                     // Check minimum duration - if too short and not a special command, show "Too short"
-                    if (totalDuration.TotalSeconds < _config.MinAudioDuration)
+                    // Exit words bypass minimum duration check (e.g., "over", "enter")
+                    bool isExitWordOnly = _textProcessor.IsOnlyExitWord(result.Text);
+                    if (totalDuration.TotalSeconds < _config.MinAudioDuration && !isExitWordOnly)
                     {
                         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{result.Text}\"");
                         ShowTooShort();
                     }
                     else
                     {
+                        if (isExitWordOnly)
+                        {
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Exit word detected, bypassing min duration check");
+                        }
                         await TypeTranscriptionAsync(result);
                     }
                 }
@@ -550,13 +556,19 @@ public class WhisperKeyboardApp : IDisposable
             else
             {
                 // Not a pause word - check minimum duration before typing
-                if (totalDuration.TotalSeconds < _config.MinAudioDuration)
+                // Exit words bypass minimum duration check (e.g., "over", "enter")
+                bool isExitWordOnly = _textProcessor.IsOnlyExitWord(text);
+                if (totalDuration.TotalSeconds < _config.MinAudioDuration && !isExitWordOnly)
                 {
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{text}\"");
                     ShowTooShort();
                 }
                 else
                 {
+                    if (isExitWordOnly)
+                    {
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Exit word detected, bypassing min duration check");
+                    }
                     // Normal transcription - type it
                     await TypeTranscriptionAsync(result);
                 }

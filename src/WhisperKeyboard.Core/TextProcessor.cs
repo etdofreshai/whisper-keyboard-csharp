@@ -85,6 +85,31 @@ public class TextProcessor
     }
 
     /// <summary>
+    /// Check if the transcription consists ONLY of an exit word.
+    /// </summary>
+    /// <param name="text">Raw transcribed text</param>
+    /// <returns>True if the text is just an exit word</returns>
+    public bool IsOnlyExitWord(string text)
+    {
+        if (!_config.ExitWordsEnabled || _config.ExitWords.Count == 0)
+            return false;
+
+        text = text.Trim();
+        // Strip common trailing punctuation that Whisper might add
+        text = text.TrimEnd('.', '!', '?', ',', ';', ':');
+
+        foreach (var exitWord in _config.ExitWords)
+        {
+            if (text.Equals(exitWord, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Check if the transcription starts with a wake word.
     /// Wake words must appear at the START of the transcription.
     /// </summary>
