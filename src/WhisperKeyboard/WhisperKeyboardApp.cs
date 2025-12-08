@@ -75,13 +75,13 @@ public class WhisperKeyboardApp : IDisposable
         RegisterHotkeys();
 
         // Start listening automatically if configured
-        if (!string.IsNullOrEmpty(_config.ApiKey))
-        {
-            StartListening();
-        }
-        else
+        if (string.IsNullOrEmpty(_config.ApiKey))
         {
             Console.WriteLine("API Key not configured. Please set OPENAI_API_KEY or configure in settings.");
+        }
+        else if (_config.StartListeningOnLaunch)
+        {
+            StartListening();
         }
     }
 

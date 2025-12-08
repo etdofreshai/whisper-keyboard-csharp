@@ -1,7 +1,9 @@
+using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Microsoft.Win32;
 using WhisperKeyboard.Core;
 
 namespace WhisperKeyboard;
@@ -108,8 +110,9 @@ public partial class SettingsWindow : Window
         ExitWordsBox.Text = string.Join(", ", _config.ExitWords);
 
         // General settings
+        StartOnLoginCheck.IsChecked = _config.StartOnLogin;
+        StartListeningOnLaunchCheck.IsChecked = _config.StartListeningOnLaunch;
         ShowNotificationsCheck.IsChecked = _config.ShowNotifications;
-        StartMinimizedCheck.IsChecked = _config.StartMinimized;
         ConfigPathLabel.Text = Config.GetConfigPath();
 
         // Hotkey settings
@@ -167,8 +170,14 @@ public partial class SettingsWindow : Window
             .ToList();
 
         // General settings
+        var startOnLogin = StartOnLoginCheck.IsChecked ?? false;
+        if (_config.StartOnLogin != startOnLogin)
+        {
+            _config.StartOnLogin = startOnLogin;
+            SetStartOnLogin(startOnLogin);
+        }
+        _config.StartListeningOnLaunch = StartListeningOnLaunchCheck.IsChecked ?? true;
         _config.ShowNotifications = ShowNotificationsCheck.IsChecked ?? true;
-        _config.StartMinimized = StartMinimizedCheck.IsChecked ?? false;
 
         // Hotkey settings
         _config.ToggleRecordingHotkey = ToggleRecordingHotkeyBox.Text?.Trim() ?? "";
@@ -372,5 +381,116 @@ public partial class SettingsWindow : Window
 
             _ => null
         };
+    }
+
+    private static void SetStartOnLogin(bool enable)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            SetWindowsStartup(enable);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            SetMacOSStartup(enable);
+        }
+        else
+        {
+            Console.WriteLine("Start on login not supported on this platform");
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void SetWindowsStartup(bool enable)
+    {
+        try
+        {
+            const string keyName = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+            const string valueName = "WhisperKeyboard";
+
+            using var key = Registry.CurrentUser.OpenSubKey(keyName, writable: true);
+            if (key == null)
+            {
+                Console.WriteLine("Failed to open registry key for startup");
+                return;
+            }
+
+            if (enable)
+            {
+                var exePath = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    key.SetValue(valueName, $"\"{exePath}\"");
+                    Console.WriteLine($"Added to Windows startup: {exePath}");
+                }
+            }
+            else
+            {
+                key.DeleteValue(valueName, throwOnMissingValue: false);
+                Console.WriteLine("Removed from Windows startup");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to set Windows startup: {ex.Message}");
+        }
+    }
+
+    private static void SetMacOSStartup(bool enable)
+    {
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var launchAgentsDir = Path.Combine(home, "Library", "LaunchAgents");
+            var plistPath = Path.Combine(launchAgentsDir, "com.whisper-keyboard.plist");
+
+            if (enable)
+            {
+                // Ensure LaunchAgents directory exists
+                if (!Directory.Exists(launchAgentsDir))
+                {
+                    Directory.CreateDirectory(launchAgentsDir);
+                }
+
+                var exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath))
+                {
+                    Console.WriteLine("Could not determine executable path");
+                    return;
+                }
+
+                // Create the Launch Agent plist
+                var plistContent = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<!DOCTYPE plist PUBLIC ""-//Apple//DTD PLIST 1.0//EN"" ""http://www.apple.com/DTDs/PropertyList-1.0.dtd"">
+<plist version=""1.0"">
+<dict>
+    <key>Label</key>
+    <string>com.whisper-keyboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exePath}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+";
+                File.WriteAllText(plistPath, plistContent);
+                Console.WriteLine($"Created macOS Launch Agent: {plistPath}");
+            }
+            else
+            {
+                if (File.Exists(plistPath))
+                {
+                    File.Delete(plistPath);
+                    Console.WriteLine($"Removed macOS Launch Agent: {plistPath}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to set macOS startup: {ex.Message}");
+        }
     }
 }

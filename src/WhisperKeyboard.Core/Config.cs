@@ -52,7 +52,8 @@ public class Config
 
     // General Settings
     public bool ShowNotifications { get; set; } = true;
-    public bool StartMinimized { get; set; } = true;
+    public bool StartOnLogin { get; set; } = false;
+    public bool StartListeningOnLaunch { get; set; } = true;
     public bool IsCalibrated { get; set; } = false;
 
     public static Config Load()

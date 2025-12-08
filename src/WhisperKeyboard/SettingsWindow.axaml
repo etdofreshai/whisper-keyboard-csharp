@@ -138,8 +138,9 @@
             <TabItem Header="General">
                 <ScrollViewer Margin="10">
                     <StackPanel Spacing="15">
+                        <CheckBox x:Name="StartOnLoginCheck" Content="Start when computer starts"/>
+                        <CheckBox x:Name="StartListeningOnLaunchCheck" Content="Start listening when application starts" IsChecked="True"/>
                         <CheckBox x:Name="ShowNotificationsCheck" Content="Show notifications" IsChecked="True"/>
-                        <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray"/>
 
                         <TextBlock Text="Config file location:" FontSize="12" Foreground="#666666" Margin="0,20,0,0"/>
                         <TextBlock x:Name="ConfigPathLabel" Text="" FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
