@@ -1,6 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="WhisperKeyboard.Avalonia.RecordingIndicator"
+        x:Class="WhisperKeyboard.RecordingIndicator"
         Title="Recording"
         Width="380"
         Height="65"

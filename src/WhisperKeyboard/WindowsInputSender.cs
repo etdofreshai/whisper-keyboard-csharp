@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public static class WindowsInputSender
 {

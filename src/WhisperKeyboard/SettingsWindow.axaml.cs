@@ -4,7 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public partial class SettingsWindow : Window
 {

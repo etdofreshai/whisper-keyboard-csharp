@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 /// <summary>
 /// Pure P/Invoke wrapper for OpenAL, bypassing OpenTK to directly use openal-soft on macOS.

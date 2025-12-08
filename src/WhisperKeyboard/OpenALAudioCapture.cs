@@ -1,6 +1,6 @@
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 /// <summary>
 /// Cross-platform audio capture using OpenAL via pure P/Invoke.

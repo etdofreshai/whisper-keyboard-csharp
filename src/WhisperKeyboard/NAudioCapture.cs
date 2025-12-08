@@ -2,7 +2,7 @@ using NAudio.Wave;
 using System.Collections.Concurrent;
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public class NAudioCapture : IAudioCapture
 {

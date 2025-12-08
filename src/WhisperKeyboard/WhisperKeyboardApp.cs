@@ -5,7 +5,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 /// <summary>
 /// Main application controller that manages the tray icon, recording indicator,

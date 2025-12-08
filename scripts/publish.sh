@@ -7,10 +7,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECT="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/WhisperKeyboard.Avalonia.csproj"
+PROJECT="$PROJECT_DIR/src/WhisperKeyboard/WhisperKeyboard.csproj"
 
 echo "==> Killing existing WhisperKeyboard processes..."
-killall WhisperKeyboard.Avalonia 2>/dev/null || true
+killall WhisperKeyboard 2>/dev/null || true
 sleep 0.3
 
 echo "==> Building..."
@@ -19,12 +19,12 @@ dotnet build "$PROJECT" -c Release -p:UseSharedCompilation=false
 echo "==> Publishing..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
     dotnet publish "$PROJECT" -c Release -r osx-arm64 --self-contained false -p:UseSharedCompilation=false
-    PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/bin/Release/net8.0/osx-arm64/publish"
+    PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard/bin/Release/net8.0/osx-arm64/publish"
 
     echo "==> Creating macOS app bundle..."
     APP_NAME="WhisperKeyboard.app"
     APP_PATH="$PROJECT_DIR/publish/$APP_NAME"
-    MACOS_RESOURCES="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/macOS"
+    MACOS_RESOURCES="$PROJECT_DIR/src/WhisperKeyboard/macOS"
 
     # Remove old app bundle if it exists
     rm -rf "$APP_PATH"
@@ -53,6 +53,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "==> App bundle created: $APP_PATH"
 else
     dotnet publish "$PROJECT" -c Release
-    PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard.Avalonia/bin/Release/net8.0/publish"
+    PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard/bin/Release/net8.0/publish"
     echo "==> Publish complete! Output: $PUBLISH_DIR"
 fi

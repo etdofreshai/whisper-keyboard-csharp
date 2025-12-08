@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Avalonia.Input.Platform;
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 /// <summary>
 /// Cross-platform text typer using clipboard paste.

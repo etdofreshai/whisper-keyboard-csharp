@@ -3,7 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WhisperKeyboard.Core;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public partial class MainWindow : Window
 {

@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
-$Project = Join-Path $ProjectDir "src\WhisperKeyboard.Avalonia\WhisperKeyboard.Avalonia.csproj"
+$Project = Join-Path $ProjectDir "src\WhisperKeyboard\WhisperKeyboard.csproj"
 
 Write-Host "==> Killing existing WhisperKeyboard processes..."
 Stop-Process -Name "WhisperKeyboard", "WhisperKeyboard.Avalonia" -Force -ErrorAction SilentlyContinue

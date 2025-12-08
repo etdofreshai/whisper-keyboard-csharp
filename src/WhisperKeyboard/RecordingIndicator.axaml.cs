@@ -5,7 +5,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public partial class RecordingIndicator : Window
 {

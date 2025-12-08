@@ -1,6 +1,6 @@
 using Avalonia;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 class Program
 {

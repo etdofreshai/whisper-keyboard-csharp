@@ -7,7 +7,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 public partial class App : Application
 {
@@ -50,7 +50,7 @@ public partial class App : Application
             WindowIcon? icon = null;
             try
             {
-                var iconUri = new Uri("avares://WhisperKeyboard.Avalonia/Assets/tray-icon.png");
+                var iconUri = new Uri("avares://WhisperKeyboard/Assets/tray-icon.png");
                 using var stream = AssetLoader.Open(iconUri);
                 var bitmap = new Bitmap(stream);
                 icon = new WindowIcon(bitmap);

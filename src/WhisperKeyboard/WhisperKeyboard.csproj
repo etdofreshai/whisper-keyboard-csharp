@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RootNamespace>WhisperKeyboard.Avalonia</RootNamespace>
+    <RootNamespace>WhisperKeyboard</RootNamespace>
     <ApplicationIcon />
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>

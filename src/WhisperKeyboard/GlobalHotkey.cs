@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace WhisperKeyboard.Avalonia;
+namespace WhisperKeyboard;
 
 /// <summary>
 /// macOS global hotkey implementation using CGEventTap.
