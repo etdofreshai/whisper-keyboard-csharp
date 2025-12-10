@@ -22,6 +22,8 @@ public class OpenALAudioCapture : IAudioCapture
     private DateTime _lastSpeechTime;
     private DateTime _speechStartTime;
     private TimeSpan _accumulatedSpeechDuration;
+    private bool _isLongRecording;
+    private DateTime _longRecordingStartTime;
 
     public event EventHandler<AudioReadyEventArgs>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
@@ -30,6 +32,7 @@ public class OpenALAudioCapture : IAudioCapture
     public bool IsRecording => _isRunning;
     public bool IsPaused => _isPaused;
     public bool IsSpeechDetected => _isSpeechDetected;
+    public bool IsLongRecording => _isLongRecording;
 
     public OpenALAudioCapture(Config config)
     {
@@ -203,6 +206,18 @@ public class OpenALAudioCapture : IAudioCapture
             var chunk = new byte[bytesRecorded];
             Array.Copy(buffer, chunk, bytesRecorded);
 
+            // In long recording mode, always buffer audio regardless of VAD
+            if (_isLongRecording)
+            {
+                _audioBuffer.Add(chunk);
+
+                // Calculate chunk duration for tracking
+                double chunkDuration = (double)bytesRecorded / (_config.SampleRate * 2);
+                _accumulatedSpeechDuration += TimeSpan.FromSeconds(chunkDuration);
+                _lastSpeechTime = DateTime.Now;
+                return;
+            }
+
             if (isSpeech)
             {
                 if (!_isSpeechDetected)
@@ -244,12 +259,16 @@ public class OpenALAudioCapture : IAudioCapture
                     // Still recording after speech (trailing silence)
                     _audioBuffer.Add(chunk);
 
-                    var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
-
-                    if (silenceDuration > _config.MaxSilenceDuration)
+                    // In long recording mode, don't auto-finalize on silence
+                    if (!_isLongRecording)
                     {
-                        // End of speech detected
-                        FinalizeAudio();
+                        var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+
+                        if (silenceDuration > _config.MaxSilenceDuration)
+                        {
+                            // End of speech detected
+                            FinalizeAudio();
+                        }
                     }
                 }
             }
@@ -283,6 +302,52 @@ public class OpenALAudioCapture : IAudioCapture
         _accumulatedSpeechDuration = TimeSpan.Zero;
         _isSpeechDetected = false;
         SpeechDetected?.Invoke(this, false);
+    }
+
+    public void StartLongRecording()
+    {
+        if (_isLongRecording || !_isRunning) return;
+
+        lock (_bufferLock)
+        {
+            _isLongRecording = true;
+            _longRecordingStartTime = DateTime.Now;
+            _isSpeechDetected = true; // Treat as always "speaking"
+            _speechStartTime = DateTime.Now;
+            _accumulatedSpeechDuration = TimeSpan.Zero;
+
+            // Clear buffers and start fresh
+            _audioBuffer.Clear();
+            _voiceBuffer.Clear();
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
+            SpeechDetected?.Invoke(this, true);
+        }
+    }
+
+    public void StopLongRecording()
+    {
+        if (!_isLongRecording) return;
+
+        lock (_bufferLock)
+        {
+            _isLongRecording = false;
+            var duration = DateTime.Now - _longRecordingStartTime;
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STOPPED. Duration: {duration.TotalSeconds:F2}s");
+
+            // Finalize and send all buffered audio
+            if (_audioBuffer.Count > 0)
+            {
+                FinalizeAudio();
+            }
+            else
+            {
+                // No audio captured, reset state
+                _isSpeechDetected = false;
+                SpeechDetected?.Invoke(this, false);
+            }
+        }
     }
 
     public void Dispose()

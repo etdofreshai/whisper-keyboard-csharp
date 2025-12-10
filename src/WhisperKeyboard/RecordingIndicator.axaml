@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="WhisperKeyboard.RecordingIndicator"
         Title="Recording"
-        Width="380"
+        Width="420"
         Height="65"
         CanResize="False"
         ShowInTaskbar="False"
@@ -46,6 +46,33 @@
                         Orientation="Horizontal"
                         Spacing="6"
                         VerticalAlignment="Center">
+                <!-- Long Record Button -->
+                <Button x:Name="LongRecordButton"
+                        Width="32" Height="32"
+                        Background="#323232"
+                        BorderThickness="0"
+                        CornerRadius="16"
+                        Padding="0"
+                        ToolTip.Tip="Long Recording"
+                        IsVisible="False">
+                    <Panel>
+                        <!-- Record Icon (red circle) -->
+                        <Ellipse x:Name="LongRecordIcon"
+                                 Width="12" Height="12"
+                                 Fill="#FF4444"
+                                 IsVisible="True"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center" />
+                        <!-- Stop Icon (red square, shown during recording) -->
+                        <Rectangle x:Name="LongRecordStopIcon"
+                                   Width="10" Height="10"
+                                   Fill="#FF4444"
+                                   IsVisible="False"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Panel>
+                </Button>
+
                 <!-- Pause/Resume Button -->
                 <Button x:Name="PauseButton"
                         Width="32" Height="32"

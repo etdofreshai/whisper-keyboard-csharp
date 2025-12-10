@@ -19,6 +19,8 @@ public partial class RecordingIndicator : Window
     private bool _isRecording;
     private DateTime _recordingStartTime;
     private bool _isPaused;
+    private bool _isLongRecording;
+    private DateTime _longRecordingStartTime;
 
     // Drag state
     private bool _isDragging;
@@ -42,6 +44,7 @@ public partial class RecordingIndicator : Window
     public event Action? OnPauseClicked;
     public event Action? OnStopClicked;
     public event Action? OnSettingsClicked;
+    public event Action? OnLongRecordClicked;
 
     public RecordingIndicator()
     {
@@ -60,6 +63,7 @@ public partial class RecordingIndicator : Window
         PauseButton.Click += (s, e) => OnPauseClicked?.Invoke();
         StopButton.Click += (s, e) => OnStopClicked?.Invoke();
         SettingsButton.Click += (s, e) => OnSettingsClicked?.Invoke();
+        LongRecordButton.Click += (s, e) => OnLongRecordClicked?.Invoke();
 
         // Enable dragging
         PointerPressed += OnPointerPressed;
@@ -180,8 +184,19 @@ public partial class RecordingIndicator : Window
 
     private void RecordingTimer_Tick(object? sender, EventArgs e)
     {
-        var elapsed = DateTime.Now - _recordingStartTime;
-        TimerText.Text = $"{elapsed.TotalSeconds:F1}s";
+        var elapsed = _isLongRecording
+            ? DateTime.Now - _longRecordingStartTime
+            : DateTime.Now - _recordingStartTime;
+
+        if (_isLongRecording)
+        {
+            // Show as M:SS for long recordings
+            TimerText.Text = $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:D2}";
+        }
+        else
+        {
+            TimerText.Text = $"{elapsed.TotalSeconds:F1}s";
+        }
     }
 
     private void DrawWaveform()
@@ -386,6 +401,52 @@ public partial class RecordingIndicator : Window
     {
         PauseIcon.IsVisible = !_isPaused;
         PlayIcon.IsVisible = _isPaused;
+    }
+
+    public void SetLongRecordButtonVisible(bool visible)
+    {
+        LongRecordButton.IsVisible = visible;
+    }
+
+    public void ShowLongRecording()
+    {
+        _isLongRecording = true;
+        _isRecording = true; // Keep waveform active
+        _longRecordingStartTime = DateTime.Now;
+
+        StatusText.Text = "Long Recording";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100)); // Red
+        TimerText.Text = "0:00";
+        TimerText.IsVisible = true;
+        _targetOpacity = ActiveOpacity;
+
+        // Toggle button icon to stop state
+        LongRecordIcon.IsVisible = false;
+        LongRecordStopIcon.IsVisible = true;
+
+        // Disable other buttons during long recording
+        PauseButton.IsEnabled = false;
+        StopButton.IsEnabled = false;
+        SettingsButton.IsEnabled = false;
+
+        _updateTimer.Start();
+        _recordingTimer.Start();
+
+        if (!IsVisible) Show();
+    }
+
+    public void ShowLongRecordingStopped()
+    {
+        _isLongRecording = false;
+
+        // Re-enable buttons
+        PauseButton.IsEnabled = true;
+        StopButton.IsEnabled = true;
+        SettingsButton.IsEnabled = true;
+
+        // Restore button icon
+        LongRecordIcon.IsVisible = true;
+        LongRecordStopIcon.IsVisible = false;
     }
 
     public void HideCompletely()

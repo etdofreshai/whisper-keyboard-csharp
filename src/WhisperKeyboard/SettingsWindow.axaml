@@ -144,6 +144,16 @@
                             </Grid>
                         </StackPanel>
 
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Long Recording (Start/Stop)" FontSize="12" Foreground="#888888"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox x:Name="LongRecordHotkeyBox" Grid.Column="0" Watermark="Click to set hotkey"
+                                         GotFocus="OnHotkeyBoxGotFocus" LostFocus="OnHotkeyBoxLostFocus" KeyDown="OnHotkeyBoxKeyDown"/>
+                                <Button Grid.Column="1" Content="✕" Width="28" Height="28" Margin="5,0,0,0"
+                                        Click="OnClearHotkeyClick" Tag="LongRecord" FontSize="12" Padding="0"/>
+                            </Grid>
+                        </StackPanel>
+
                         <TextBlock Text="Supported modifiers: Cmd, Ctrl, Option, Shift" FontSize="10" Foreground="#666666" Margin="0,10,0,0"/>
                         <TextBlock Text="Supported keys: A-Z, 0-9, F1-F12, Space, Return, etc." FontSize="10" Foreground="#666666"/>
                     </StackPanel>
@@ -157,6 +167,16 @@
                         <CheckBox x:Name="StartOnLoginCheck" Content="Start when computer starts"/>
                         <CheckBox x:Name="StartListeningOnLaunchCheck" Content="Start listening when application starts" IsChecked="True"/>
                         <CheckBox x:Name="ShowNotificationsCheck" Content="Show notifications" IsChecked="True"/>
+
+                        <StackPanel Spacing="5" Margin="0,15,0,0">
+                            <TextBlock Text="Long Recording" FontSize="12" Foreground="#888888" FontWeight="SemiBold"/>
+                            <CheckBox x:Name="ShowLongRecordButtonCheck" Content="Show Long Record button on panel"/>
+                            <StackPanel Spacing="5" Margin="20,5,0,0">
+                                <TextBlock Text="Max Duration (minutes):" FontSize="12" Foreground="#888888"/>
+                                <NumericUpDown x:Name="MaxLongRecordMinutes" Minimum="5" Maximum="30" Value="30" Increment="5"/>
+                                <TextBlock Text="Recording will auto-stop after this duration" FontSize="10" Foreground="#666666"/>
+                            </StackPanel>
+                        </StackPanel>
 
                         <TextBlock Text="Config file location:" FontSize="12" Foreground="#666666" Margin="0,20,0,0"/>
                         <TextBlock x:Name="ConfigPathLabel" Text="" FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>

@@ -89,4 +89,20 @@ public interface IAudioCapture : IDisposable
     /// Resume paused audio capture.
     /// </summary>
     void Resume();
+
+    /// <summary>
+    /// Start long recording mode (bypasses VAD auto-stop).
+    /// Audio will continue buffering until StopLongRecording is called.
+    /// </summary>
+    void StartLongRecording();
+
+    /// <summary>
+    /// Stop long recording and return all buffered audio via AudioReady event.
+    /// </summary>
+    void StopLongRecording();
+
+    /// <summary>
+    /// Whether long recording mode is active.
+    /// </summary>
+    bool IsLongRecording { get; }
 }

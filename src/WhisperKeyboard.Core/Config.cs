@@ -54,6 +54,11 @@ public class Config
     public string ToggleRecordingHotkey { get; set; } = "";
     public string PauseResumeHotkey { get; set; } = "";
     public string OpenSettingsHotkey { get; set; } = "";
+    public string LongRecordHotkey { get; set; } = "";
+
+    // Long Recording Settings
+    public bool ShowLongRecordButton { get; set; } = false;
+    public int MaxLongRecordMinutes { get; set; } = 30;
 
     // General Settings
     public bool ShowNotifications { get; set; } = true;

@@ -19,6 +19,8 @@ public class NAudioCapture : IAudioCapture
     private bool _disposed;
     private DateTime _lastVolumeLog = DateTime.MinValue;
     private double _maxVolumeSeen;
+    private bool _isLongRecording;
+    private DateTime _longRecordingStartTime;
 
     public event EventHandler<AudioReadyEventArgs>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
@@ -27,6 +29,7 @@ public class NAudioCapture : IAudioCapture
     public bool IsRecording => _isRecording;
     public bool IsPaused { get; private set; }
     public bool IsSpeechDetected => _isSpeechDetected;
+    public bool IsLongRecording => _isLongRecording;
 
     public NAudioCapture(Config config)
     {
@@ -137,6 +140,18 @@ public class NAudioCapture : IAudioCapture
             var chunk = new byte[e.BytesRecorded];
             Array.Copy(e.Buffer, chunk, e.BytesRecorded);
 
+            // In long recording mode, always buffer audio regardless of VAD
+            if (_isLongRecording)
+            {
+                _audioBuffer.Add(chunk);
+
+                // Calculate chunk duration for tracking
+                double chunkDuration = (double)e.BytesRecorded / (_config.SampleRate * 2);
+                _accumulatedSpeechDuration += TimeSpan.FromSeconds(chunkDuration);
+                _lastSpeechTime = DateTime.Now;
+                return;
+            }
+
             if (isSpeech)
             {
                 if (!_isSpeechDetected)
@@ -165,7 +180,7 @@ public class NAudioCapture : IAudioCapture
                 _lastSpeechTime = DateTime.Now;
                 _audioBuffer.Add(chunk);
             }
-            else 
+            else
             {
                 // Silence - maintain pre-roll buffer
                 _voiceBuffer.Add(chunk);
@@ -179,13 +194,17 @@ public class NAudioCapture : IAudioCapture
                     // Still recording after speech (trailing silence)
                     _audioBuffer.Add(chunk);
 
-                    var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
-
-                    if (silenceDuration > _config.MaxSilenceDuration)
+                    // In long recording mode, don't auto-finalize on silence
+                    if (!_isLongRecording)
                     {
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Silence timeout ({silenceDuration:F2}s > {_config.MaxSilenceDuration}s). Finalizing...");
-                        // End of speech detected
-                        FinalizeAudio();
+                        var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+
+                        if (silenceDuration > _config.MaxSilenceDuration)
+                        {
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Silence timeout ({silenceDuration:F2}s > {_config.MaxSilenceDuration}s). Finalizing...");
+                            // End of speech detected
+                            FinalizeAudio();
+                        }
                     }
                 }
             }
@@ -244,6 +263,52 @@ public class NAudioCapture : IAudioCapture
         if (e.Exception != null)
         {
             Console.WriteLine($"Recording stopped due to error: {e.Exception.Message}");
+        }
+    }
+
+    public void StartLongRecording()
+    {
+        if (_isLongRecording || !_isRecording) return;
+
+        lock (_bufferLock)
+        {
+            _isLongRecording = true;
+            _longRecordingStartTime = DateTime.Now;
+            _isSpeechDetected = true; // Treat as always "speaking"
+            _speechStartTime = DateTime.Now;
+            _accumulatedSpeechDuration = TimeSpan.Zero;
+
+            // Clear buffers and start fresh
+            _audioBuffer.Clear();
+            _voiceBuffer.Clear();
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
+            SpeechDetected?.Invoke(this, true);
+        }
+    }
+
+    public void StopLongRecording()
+    {
+        if (!_isLongRecording) return;
+
+        lock (_bufferLock)
+        {
+            _isLongRecording = false;
+            var duration = DateTime.Now - _longRecordingStartTime;
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STOPPED. Duration: {duration.TotalSeconds:F2}s");
+
+            // Finalize and send all buffered audio
+            if (_audioBuffer.Count > 0)
+            {
+                FinalizeAudio();
+            }
+            else
+            {
+                // No audio captured, reset state
+                _isSpeechDetected = false;
+                SpeechDetected?.Invoke(this, false);
+            }
         }
     }
 

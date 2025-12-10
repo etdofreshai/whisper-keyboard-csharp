@@ -14,6 +14,8 @@ public partial class SettingsWindow : Window
     private readonly TranscriptionHistory? _history;
     private TextBox? _activeHotkeyBox;
 
+    public event EventHandler? SettingsSaved;
+
     public SettingsWindow() : this(Config.Load(), null) { }
 
     public SettingsWindow(Config config, TranscriptionHistory? history = null)
@@ -124,6 +126,11 @@ public partial class SettingsWindow : Window
         ToggleRecordingHotkeyBox.Text = _config.ToggleRecordingHotkey;
         PauseResumeHotkeyBox.Text = _config.PauseResumeHotkey;
         OpenSettingsHotkeyBox.Text = _config.OpenSettingsHotkey;
+        LongRecordHotkeyBox.Text = _config.LongRecordHotkey;
+
+        // Long recording settings
+        ShowLongRecordButtonCheck.IsChecked = _config.ShowLongRecordButton;
+        MaxLongRecordMinutes.Value = _config.MaxLongRecordMinutes;
 
         // Load history
         LoadHistory();
@@ -197,8 +204,14 @@ public partial class SettingsWindow : Window
         _config.ToggleRecordingHotkey = ToggleRecordingHotkeyBox.Text?.Trim() ?? "";
         _config.PauseResumeHotkey = PauseResumeHotkeyBox.Text?.Trim() ?? "";
         _config.OpenSettingsHotkey = OpenSettingsHotkeyBox.Text?.Trim() ?? "";
+        _config.LongRecordHotkey = LongRecordHotkeyBox.Text?.Trim() ?? "";
+
+        // Long recording settings
+        _config.ShowLongRecordButton = ShowLongRecordButtonCheck.IsChecked ?? false;
+        _config.MaxLongRecordMinutes = (int)(MaxLongRecordMinutes.Value ?? 30);
 
         _config.Save();
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
         Close();
     }
 
@@ -249,6 +262,9 @@ public partial class SettingsWindow : Window
                     break;
                 case "OpenSettings":
                     OpenSettingsHotkeyBox.Clear();
+                    break;
+                case "LongRecord":
+                    LongRecordHotkeyBox.Clear();
                     break;
             }
         }

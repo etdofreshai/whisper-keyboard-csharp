@@ -26,9 +26,12 @@ public class WhisperKeyboardApp : IDisposable
     private bool _isPaused;
     private bool _isStandby; // True when wake words enabled and waiting for wake word
     private bool _isTranscribing;
+    private bool _isLongRecording;
+    private bool _wasLongRecording; // Track if audio came from long recording for transcription method
     private DateTime _ignoreUntil = DateTime.MinValue;
     private bool _disposed;
     private CancellationTokenSource? _transcriptionCts;
+    private CancellationTokenSource? _longRecordingCts;
 
     // Tray icon (defined in App.axaml)
     private NativeMenuItem? _statusMenuItem;
@@ -73,6 +76,10 @@ public class WhisperKeyboardApp : IDisposable
         };
         _recordingIndicator.OnStopClicked += StopListening;
         _recordingIndicator.OnSettingsClicked += ShowSettings;
+        _recordingIndicator.OnLongRecordClicked += ToggleLongRecording;
+
+        // Set long record button visibility based on config
+        _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
 
         // Register global hotkeys
         RegisterHotkeys();
@@ -112,6 +119,12 @@ public class WhisperKeyboardApp : IDisposable
         if (!string.IsNullOrWhiteSpace(_config.OpenSettingsHotkey))
         {
             _globalHotkey.Register(_config.OpenSettingsHotkey, ShowSettings);
+        }
+
+        // Long recording hotkey
+        if (!string.IsNullOrWhiteSpace(_config.LongRecordHotkey))
+        {
+            _globalHotkey.Register(_config.LongRecordHotkey, ToggleLongRecording);
         }
     }
 
@@ -395,11 +408,24 @@ public class WhisperKeyboardApp : IDisposable
             _recordingIndicator.ShowTranscribing();
         });
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, sending to API...");
+        // Check if this audio came from a long recording
+        var isFromLongRecording = _wasLongRecording;
+        _wasLongRecording = false; // Reset flag
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, long recording: {isFromLongRecording}, sending to API...");
 
         try
         {
-            var result = await _transcriber.TranscribeAsync(audioData, cancellationToken);
+            // Use appropriate transcription method based on recording type
+            TranscriptionResult? result;
+            if (isFromLongRecording)
+            {
+                result = await _transcriber.TranscribeLongRecordingAsync(audioData, cancellationToken);
+            }
+            else
+            {
+                result = await _transcriber.TranscribeAsync(audioData, cancellationToken);
+            }
 
             // Check if we were cancelled or stopped before typing
             // Note: paused is OK - transcription should complete if user spoke before pausing
@@ -595,12 +621,105 @@ public class WhisperKeyboardApp : IDisposable
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typed successfully");
     }
 
+    private void ToggleLongRecording()
+    {
+        if (_isLongRecording)
+            StopLongRecording();
+        else
+            StartLongRecording();
+    }
+
+    private void StartLongRecording()
+    {
+        if (!_isListening)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - not listening");
+            return;
+        }
+
+        if (_isTranscribing)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - transcription in progress");
+            return;
+        }
+
+        if (_isPaused || _isStandby)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - paused or standby");
+            return;
+        }
+
+        _isLongRecording = true;
+        _longRecordingCts = new CancellationTokenSource();
+
+        // Set max duration timeout
+        var maxDuration = TimeSpan.FromMinutes(_config.MaxLongRecordMinutes);
+        _longRecordingCts.CancelAfter(maxDuration);
+
+        _audioCapture.StartLongRecording();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Long Recording...");
+            _recordingIndicator.ShowLongRecording();
+        });
+
+        // Monitor for timeout
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(maxDuration, _longRecordingCts.Token);
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording max duration reached ({_config.MaxLongRecordMinutes} min)");
+                Dispatcher.UIThread.Post(() => StopLongRecording());
+            }
+            catch (TaskCanceledException)
+            {
+                // Normal cancellation - user stopped recording
+            }
+        });
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording started (max: {_config.MaxLongRecordMinutes} min)");
+    }
+
+    private void StopLongRecording()
+    {
+        if (!_isLongRecording) return;
+
+        _isLongRecording = false;
+        _wasLongRecording = true; // Mark that the next audio should use long recording transcription
+        _longRecordingCts?.Cancel();
+        _longRecordingCts?.Dispose();
+        _longRecordingCts = null;
+
+        _audioCapture.StopLongRecording();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Transcribing...");
+            _recordingIndicator.ShowLongRecordingStopped();
+            _recordingIndicator.ShowTranscribing();
+        });
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording stopped");
+    }
+
     public void ShowSettings()
     {
         Dispatcher.UIThread.Post(() =>
         {
             var settingsWindow = new SettingsWindow(_config, _history);
+            settingsWindow.SettingsSaved += OnSettingsSaved;
             settingsWindow.Show();
+        });
+    }
+
+    private void OnSettingsSaved(object? sender, EventArgs e)
+    {
+        // Update long record button visibility based on new settings
+        Dispatcher.UIThread.Post(() =>
+        {
+            _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
         });
     }
 
@@ -620,6 +739,8 @@ public class WhisperKeyboardApp : IDisposable
 
         _transcriptionCts?.Cancel();
         _transcriptionCts?.Dispose();
+        _longRecordingCts?.Cancel();
+        _longRecordingCts?.Dispose();
         _globalHotkey.Dispose();
         _audioCapture.Stop();
         _audioCapture.Dispose();
