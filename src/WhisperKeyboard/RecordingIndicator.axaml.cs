@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -70,9 +71,118 @@ public partial class RecordingIndicator : Window
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
 
-        // Position at bottom center of screen
-        Opened += (s, e) => ResetToDefaultPosition();
+        // Position at bottom center of screen and make non-activating on Windows
+        Opened += (s, e) =>
+        {
+            ResetToDefaultPosition();
+            MakeWindowNonActivating();
+        };
     }
+
+    /// <summary>
+    /// Makes this window non-activating so it doesn't steal focus when clicked.
+    /// This allows the user to click buttons without losing focus on their text editor.
+    /// </summary>
+    private void MakeWindowNonActivating()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            MakeWindowNonActivatingWindows();
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            MakeWindowNonActivatingMacOS();
+        }
+        // Linux: No reliable cross-desktop way to do this, skip for now
+    }
+
+    #region Windows Non-Activating Window
+
+    private void MakeWindowNonActivatingWindows()
+    {
+        try
+        {
+            var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd == IntPtr.Zero)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Could not get window handle");
+                return;
+            }
+
+            // Get current extended style
+            var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+
+            // Add WS_EX_NOACTIVATE to prevent the window from activating when clicked
+            SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE);
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Window set to non-activating (Windows)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Error setting non-activating: {ex.Message}");
+        }
+    }
+
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    #endregion
+
+    #region macOS Non-Activating Window
+
+    private void MakeWindowNonActivatingMacOS()
+    {
+        try
+        {
+            var nsWindow = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (nsWindow == IntPtr.Zero)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Could not get NSWindow handle");
+                return;
+            }
+
+            // Get the NSWindow's styleMask and add NSWindowStyleMaskNonactivatingPanel
+            // We use Objective-C runtime to call: [nsWindow setStyleMask:([nsWindow styleMask] | NSWindowStyleMaskNonactivatingPanel)]
+
+            // Get current style mask
+            var currentStyleMask = objc_msgSend_IntPtr(nsWindow, sel_registerName("styleMask"));
+
+            // Add NSWindowStyleMaskNonactivatingPanel (1 << 7 = 128)
+            var newStyleMask = (IntPtr)((long)currentStyleMask | NSWindowStyleMaskNonactivatingPanel);
+
+            // Set the new style mask
+            objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setStyleMask:"), newStyleMask);
+
+            // Also set the window level to floating panel level so it stays on top
+            // NSFloatingWindowLevel = 5
+            objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setLevel:"), (IntPtr)5);
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Window set to non-activating (macOS)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Error setting non-activating on macOS: {ex.Message}");
+        }
+    }
+
+    private const long NSWindowStyleMaskNonactivatingPanel = 1 << 7; // 128
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "sel_registerName")]
+    private static extern IntPtr sel_registerName(string name);
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static extern IntPtr objc_msgSend_IntPtr(IntPtr receiver, IntPtr selector);
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static extern void objc_msgSend_void_IntPtr(IntPtr receiver, IntPtr selector, IntPtr arg);
+
+    #endregion
 
     public void ResetToDefaultPosition()
     {
