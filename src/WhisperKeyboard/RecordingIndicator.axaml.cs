@@ -35,6 +35,9 @@ public partial class RecordingIndicator : Window
     private const double ActiveOpacity = 0.95;
     private double _targetOpacity = ListeningOpacity;
 
+    // Track if window has been shown at least once (has valid handle)
+    private bool _hasBeenShown;
+
     // Fade timing settings
     private const double FadeInSpeed = 0.15;      // Fast fade in
     private const double FadeOutSpeed = 0.03;     // Slower fade out
@@ -76,7 +79,36 @@ public partial class RecordingIndicator : Window
         {
             ResetToDefaultPosition();
             MakeWindowNonActivating();
+            _hasBeenShown = true;
         };
+
+        // Pre-initialize the window so we can use non-activating show later
+        // This happens after the window is fully constructed
+        Dispatcher.UIThread.Post(PreInitializeWindow, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Pre-initializes the window by showing it off-screen briefly.
+    /// This creates the native window handle and applies WS_EX_NOACTIVATE,
+    /// so subsequent shows won't steal focus.
+    /// </summary>
+    private void PreInitializeWindow()
+    {
+        if (_hasBeenShown) return;
+
+        // Position off-screen so user doesn't see it
+        Position = new PixelPoint(-10000, -10000);
+        Opacity = 0;
+
+        // Show briefly to create handle and trigger Opened event
+        Show();
+
+        // Hide immediately
+        Dispatcher.UIThread.Post(() =>
+        {
+            Hide();
+            // Opacity will be set properly when actually shown
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -131,6 +163,57 @@ public partial class RecordingIndicator : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private const int SW_SHOWNOACTIVATE = 4;
+    private const int SW_SHOWNA = 8;
+    private const int SW_SHOW = 5;
+
+    // SetWindowPos flags
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
+    /// <summary>
+    /// Shows the window without activating it (Windows only).
+    /// On first show, uses normal Show() which will trigger Opened event to set WS_EX_NOACTIVATE.
+    /// On subsequent shows (after Hide), uses SetWindowPos with SWP_NOACTIVATE to avoid stealing focus.
+    /// </summary>
+    private void ShowWithoutActivation()
+    {
+        // First time showing - must use Show() to create the window
+        // The Opened event will set WS_EX_NOACTIVATE style
+        if (!_hasBeenShown)
+        {
+            Show();
+            return;
+        }
+
+        // Window has been shown before, use platform-specific non-activating show
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd != IntPtr.Zero)
+            {
+                // Use SetWindowPos with SWP_NOACTIVATE | SWP_SHOWWINDOW to show without activating
+                // SWP_NOMOVE | SWP_NOSIZE keeps current position and size
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                    SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                // Tell Avalonia the window is now visible
+                IsVisible = true;
+                return;
+            }
+        }
+
+        // Fallback for non-Windows or if handle not available
+        Show();
+    }
 
     #endregion
 
@@ -382,7 +465,7 @@ public partial class RecordingIndicator : Window
         _updateTimer.Start();
         _recordingTimer.Start();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowListening()
@@ -398,7 +481,7 @@ public partial class RecordingIndicator : Window
         _recordingTimer.Stop();
         _updateTimer.Start();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowTranscribing()
@@ -437,7 +520,7 @@ public partial class RecordingIndicator : Window
         _recordingTimer.Stop();
         _updateTimer.Stop();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowStandby()
@@ -454,7 +537,7 @@ public partial class RecordingIndicator : Window
         _recordingTimer.Stop();
         _updateTimer.Stop();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowRecordingStandby()
@@ -470,7 +553,7 @@ public partial class RecordingIndicator : Window
         _updateTimer.Start();
         _recordingTimer.Start();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public async void ShowTooShort()
@@ -483,7 +566,7 @@ public partial class RecordingIndicator : Window
 
         _recordingTimer.Stop();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
 
         // Wait briefly then return to listening
         await Task.Delay(800);
@@ -542,7 +625,7 @@ public partial class RecordingIndicator : Window
         _updateTimer.Start();
         _recordingTimer.Start();
 
-        if (!IsVisible) Show();
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowLongRecordingStopped()
