@@ -22,6 +22,17 @@ public class ClipboardTextTyper : ITextTyper
         _config = config;
         _textProcessor = new TextProcessor(config);
         _clipboard = clipboard;
+
+        // Log clipboard state at initialization
+        if (_clipboard == null)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] WARNING: Clipboard is NULL - paste mode will fall back to direct typing");
+        }
+        else
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Clipboard initialized successfully");
+        }
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] PasteMode={config.PasteMode}");
     }
 
     public async Task TypeTextAsync(string text)
@@ -37,7 +48,7 @@ public class ClipboardTextTyper : ITextTyper
         // Check for duplicate text (within 2 seconds)
         if (!string.IsNullOrEmpty(text) && text == _lastTypedText && (DateTime.Now - _lastTypeTime).TotalSeconds < 2)
         {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping duplicate text");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SKIPPING duplicate text: \"{text}\" (last typed {(DateTime.Now - _lastTypeTime).TotalSeconds:F1}s ago)");
             return;
         }
 
@@ -54,6 +65,7 @@ public class ClipboardTextTyper : ITextTyper
                 if (_config.PasteMode && _clipboard != null)
                 {
                     // Paste mode: copy to clipboard and simulate Cmd+V
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using PASTE mode (clipboard available)");
                     await _clipboard.SetTextAsync(text);
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Text copied to clipboard: \"{text}\"");
 
@@ -66,7 +78,7 @@ public class ClipboardTextTyper : ITextTyper
                 else
                 {
                     // Typing mode: simulate individual keystrokes
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Typing text directly: \"{text}\"");
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using TYPING mode (PasteMode={_config.PasteMode}, clipboard={(_clipboard != null ? "available" : "NULL")})");
                     await SimulateTypingAsync(text);
                 }
             }
@@ -148,6 +160,8 @@ public class ClipboardTextTyper : ITextTyper
     {
         try
         {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Running AppleScript: {script}");
+
             var psi = new ProcessStartInfo
             {
                 FileName = "osascript",
@@ -164,18 +178,38 @@ public class ClipboardTextTyper : ITextTyper
                 // Write script to stdin instead of passing via arguments
                 await process.StandardInput.WriteLineAsync(script);
                 process.StandardInput.Close();
-                await process.WaitForExitAsync();
+
+                // Add timeout to prevent hanging indefinitely
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript TIMEOUT - killing process. This may indicate accessibility permission issues.");
+                    process.Kill();
+                    return;
+                }
 
                 if (process.ExitCode != 0)
                 {
                     var error = await process.StandardError.ReadToEndAsync();
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript error: {error}");
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript error (exit code {process.ExitCode}): {error}");
                 }
+                else
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript completed successfully");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Failed to start osascript process");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript error: {ex.Message}");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript exception: {ex.Message}");
         }
     }
 

@@ -57,7 +57,7 @@ public class Config
     public string LongRecordHotkey { get; set; } = "";
 
     // Long Recording Settings
-    public bool ShowLongRecordButton { get; set; } = false;
+    public bool ShowLongRecordButton { get; set; } = true;
     public int MaxLongRecordMinutes { get; set; } = 30;
 
     // General Settings
