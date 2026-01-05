@@ -136,7 +136,24 @@ public class SpeechTranscriber : IDisposable
     }
 
     /// <summary>
+    /// Try to convert PCM to MP3. Returns null if LAME is not available (e.g., on macOS).
+    /// </summary>
+    private static byte[]? TryConvertToMp3(byte[] pcmData, int sampleRate, int channels)
+    {
+        try
+        {
+            return ConvertToMp3(pcmData, sampleRate, channels);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MP3 encoding not available: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Transcribe long recordings using MP3 encoding to reduce file size.
+    /// Falls back to WAV if MP3 encoding is not available (e.g., on macOS without LAME).
     /// </summary>
     public async Task<TranscriptionResult?> TranscribeLongRecordingAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
@@ -148,10 +165,30 @@ public class SpeechTranscriber : IDisposable
 
         try
         {
-            // Convert raw PCM to MP3 format (much smaller than WAV)
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Converting {audioData.Length / 1024.0 / 1024.0:F2} MB PCM to MP3...");
-            byte[] mp3Data = ConvertToMp3(audioData, _config.SampleRate, _config.Channels);
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MP3 size: {mp3Data.Length / 1024.0 / 1024.0:F2} MB");
+            // Try to convert to MP3 (smaller), fall back to WAV if LAME is not available
+            byte[] encodedData;
+            string contentType;
+            string fileName;
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Converting {audioData.Length / 1024.0 / 1024.0:F2} MB PCM...");
+
+            var mp3Data = TryConvertToMp3(audioData, _config.SampleRate, _config.Channels);
+            if (mp3Data != null)
+            {
+                encodedData = mp3Data;
+                contentType = "audio/mpeg";
+                fileName = "audio.mp3";
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MP3 size: {encodedData.Length / 1024.0 / 1024.0:F2} MB");
+            }
+            else
+            {
+                // Fallback to WAV format
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Falling back to WAV format...");
+                encodedData = ConvertToWav(audioData, _config.SampleRate, _config.Channels);
+                contentType = "audio/wav";
+                fileName = "audio.wav";
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] WAV size: {encodedData.Length / 1024.0 / 1024.0:F2} MB");
+            }
 
             // Use a longer timeout for long recordings (5 minutes)
             using var longTimeoutClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
@@ -162,9 +199,9 @@ public class SpeechTranscriber : IDisposable
             using var content = new MultipartFormDataContent();
 
             // Add the audio file
-            var audioContent = new ByteArrayContent(mp3Data);
-            audioContent.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
-            content.Add(audioContent, "file", "audio.mp3");
+            var audioContent = new ByteArrayContent(encodedData);
+            audioContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            content.Add(audioContent, "file", fileName);
 
             // Add the model parameter
             content.Add(new StringContent(_config.Model), "model");
