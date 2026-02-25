@@ -765,3 +765,207 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
         _disposed = true;
     }
 }
+
+/// <summary>
+/// Push-to-Talk hook using WH_KEYBOARD_LL to detect Right Ctrl + Right Shift hold/release.
+/// Windows-only. Fires Started when both keys are held, Stopped when either is released.
+/// </summary>
+public class PushToTalkHook : IDisposable
+{
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public int pt_x;
+        public int pt_y;
+    }
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_SYSKEYUP = 0x0105;
+    private const int WM_QUIT = 0x0012;
+
+    private const uint VK_RCONTROL = 0xA3;
+    private const uint VK_RSHIFT = 0xA1;
+
+    private IntPtr _hookId = IntPtr.Zero;
+    private LowLevelKeyboardProc? _proc;
+    private bool _rCtrlDown;
+    private bool _rShiftDown;
+    private bool _isActive;
+    private bool _disposed;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
+    private readonly ManualResetEventSlim _hookReady = new(false);
+
+    public event Action? Started;
+    public event Action? Stopped;
+
+    public PushToTalkHook()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.WriteLine("Push-to-Talk hook is only supported on Windows");
+            _hookReady.Set();
+            return;
+        }
+
+        _hookThread = new Thread(HookThreadProc)
+        {
+            Name = "PushToTalkHookThread",
+            IsBackground = true
+        };
+        _hookThread.Start();
+
+        if (!_hookReady.Wait(5000))
+        {
+            Console.WriteLine("Timeout waiting for PTT hook to be installed");
+        }
+    }
+
+    private void HookThreadProc()
+    {
+        try
+        {
+            _hookThreadId = GetCurrentThreadId();
+            _proc = HookCallback;
+
+            var moduleHandle = GetModuleHandle(null);
+            _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, moduleHandle, 0);
+
+            if (_hookId == IntPtr.Zero)
+            {
+                Console.WriteLine($"Failed to install PTT keyboard hook. Error: {Marshal.GetLastWin32Error()}");
+                _hookReady.Set();
+                return;
+            }
+
+            Console.WriteLine("Push-to-Talk keyboard hook installed (Right Ctrl + Right Shift)");
+            _hookReady.Set();
+
+            // Message pump - required for WH_KEYBOARD_LL to work
+            while (GetMessage(out MSG msg, IntPtr.Zero, 0, 0))
+            {
+                if (msg.message == WM_QUIT) break;
+                TranslateMessage(ref msg);
+                DispatchMessage(ref msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in PTT hook thread: {ex.Message}");
+            _hookReady.Set();
+        }
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            var hookStruct = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            int msg = (int)wParam;
+            bool isDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+            bool isUp = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+
+            if (hookStruct.vkCode == VK_RCONTROL)
+            {
+                if (isDown) _rCtrlDown = true;
+                else if (isUp) _rCtrlDown = false;
+            }
+            else if (hookStruct.vkCode == VK_RSHIFT)
+            {
+                if (isDown) _rShiftDown = true;
+                else if (isUp) _rShiftDown = false;
+            }
+
+            bool bothDown = _rCtrlDown && _rShiftDown;
+
+            if (bothDown && !_isActive)
+            {
+                _isActive = true;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    try { Started?.Invoke(); }
+                    catch (Exception ex) { Console.WriteLine($"PTT Started callback error: {ex.Message}"); }
+                });
+            }
+            else if (!bothDown && _isActive)
+            {
+                _isActive = false;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    try { Stopped?.Invoke(); }
+                    catch (Exception ex) { Console.WriteLine($"PTT Stopped callback error: {ex.Message}"); }
+                });
+            }
+        }
+
+        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        if (_hookId != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_hookId);
+            _hookId = IntPtr.Zero;
+        }
+
+        if (_hookThreadId != 0)
+        {
+            PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        _hookThread?.Join(1000);
+        _hookReady.Dispose();
+    }
+}

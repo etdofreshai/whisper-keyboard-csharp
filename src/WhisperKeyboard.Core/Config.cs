@@ -60,6 +60,9 @@ public class Config
     public bool ShowLongRecordButton { get; set; } = true;
     public int MaxLongRecordMinutes { get; set; } = 30;
 
+    // Push-to-Talk Settings
+    public bool PushToTalkEnabled { get; set; } = true;
+
     // General Settings
     public bool ShowNotifications { get; set; } = true;
     public bool StartOnLogin { get; set; } = false;

@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WhisperKeyboard.CalibrationWindow"
+        Title="Microphone Calibration"
+        Width="400"
+        Height="240"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+
+    <StackPanel Margin="20" Spacing="15">
+        <!-- Phase instruction -->
+        <TextBlock x:Name="InstructionText"
+                   Text="Preparing calibration..."
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center" />
+
+        <!-- Sub-instruction (e.g., sentence to read) -->
+        <TextBlock x:Name="SubInstructionText"
+                   Text=""
+                   FontSize="12"
+                   Foreground="#AAAAAA"
+                   HorizontalAlignment="Center"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center" />
+
+        <!-- Countdown -->
+        <TextBlock x:Name="CountdownText"
+                   Text=""
+                   FontSize="28"
+                   FontWeight="Bold"
+                   Foreground="#64FF64"
+                   HorizontalAlignment="Center" />
+
+        <!-- Volume meter bar -->
+        <Border Background="#141414" CornerRadius="4" Height="24" ClipToBounds="True">
+            <Canvas x:Name="CalibrationVolumeCanvas" />
+        </Border>
+
+        <!-- Measured values -->
+        <TextBlock x:Name="ValuesText"
+                   Text=""
+                   FontSize="11"
+                   Foreground="#888888"
+                   HorizontalAlignment="Center" />
+    </StackPanel>
+</Window>

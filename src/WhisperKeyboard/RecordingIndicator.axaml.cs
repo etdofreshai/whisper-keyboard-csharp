@@ -49,6 +49,9 @@ public partial class RecordingIndicator : Window
     public event Action? OnStopClicked;
     public event Action? OnSettingsClicked;
     public event Action? OnLongRecordClicked;
+    public event Action? OnHistoryClicked;
+    public event Action? OnCalibrateClicked;
+    public event Action? OnPinClicked;
 
     public RecordingIndicator()
     {
@@ -68,6 +71,9 @@ public partial class RecordingIndicator : Window
         StopButton.Click += (s, e) => OnStopClicked?.Invoke();
         SettingsButton.Click += (s, e) => OnSettingsClicked?.Invoke();
         LongRecordButton.Click += (s, e) => OnLongRecordClicked?.Invoke();
+        HistoryButton.Click += (s, e) => OnHistoryClicked?.Invoke();
+        CalibrateButton.Click += (s, e) => OnCalibrateClicked?.Invoke();
+        PinButton.Click += (s, e) => OnPinClicked?.Invoke();
 
         // Enable dragging
         PointerPressed += OnPointerPressed;
@@ -180,10 +186,14 @@ public partial class RecordingIndicator : Window
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_SHOWWINDOW = 0x0040;
 
+    // Track whether we're "visually hidden" (off-screen) vs actually hidden
+    private bool _isOffScreen;
+    private PixelPoint _savedPosition;
+
     /// <summary>
-    /// Shows the window without activating it (Windows only).
-    /// On first show, uses normal Show() which will trigger Opened event to set WS_EX_NOACTIVATE.
-    /// On subsequent shows (after Hide), uses SetWindowPos with SWP_NOACTIVATE to avoid stealing focus.
+    /// Shows the window without activating it or stealing focus.
+    /// On first show, uses normal Show() which triggers Opened event to set WS_EX_NOACTIVATE.
+    /// On subsequent shows, moves the window back from off-screen (avoids activation entirely).
     /// </summary>
     private void ShowWithoutActivation()
     {
@@ -195,17 +205,29 @@ public partial class RecordingIndicator : Window
             return;
         }
 
+        if (_isOffScreen)
+        {
+            // Window was hidden off-screen — move it back without any show/activate calls
+            Position = _savedPosition;
+            _isOffScreen = false;
+            // Opacity will be managed by the fade system (_targetOpacity)
+            return;
+        }
+
         // Window has been shown before, use platform-specific non-activating show
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
             if (hwnd != IntPtr.Zero)
             {
-                // Use SetWindowPos with SWP_NOACTIVATE | SWP_SHOWWINDOW to show without activating
-                // SWP_NOMOVE | SWP_NOSIZE keeps current position and size
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
-                    SWP_SHOWWINDOW | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                // Tell Avalonia the window is now visible
+                // Re-apply WS_EX_NOACTIVATE in case Avalonia cleared it
+                var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+                if ((exStyle & WS_EX_NOACTIVATE) == 0)
+                {
+                    SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE);
+                }
+
+                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
                 IsVisible = true;
                 return;
             }
@@ -246,6 +268,13 @@ public partial class RecordingIndicator : Window
             // NSFloatingWindowLevel = 5
             objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setLevel:"), (IntPtr)5);
 
+            // Exclude from Mission Control / Expose so it doesn't cause other windows
+            // to shrink to match this small toolbar window.
+            // NSWindowCollectionBehaviorTransient (1 << 3) = not in Spaces/Mission Control
+            // NSWindowCollectionBehaviorIgnoresCycle (1 << 6) = not in Cmd+Tab / window cycling
+            var collectionBehavior = (IntPtr)(NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle);
+            objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setCollectionBehavior:"), collectionBehavior);
+
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Window set to non-activating (macOS)");
         }
         catch (Exception ex)
@@ -254,7 +283,9 @@ public partial class RecordingIndicator : Window
         }
     }
 
-    private const long NSWindowStyleMaskNonactivatingPanel = 1 << 7; // 128
+    private const long NSWindowStyleMaskNonactivatingPanel = 1 << 7;  // 128
+    private const long NSWindowCollectionBehaviorTransient = 1 << 3;  // 8 - not managed by Mission Control
+    private const long NSWindowCollectionBehaviorIgnoresCycle = 1 << 6; // 64 - not in Cmd+Tab cycling
 
     [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "sel_registerName")]
     private static extern IntPtr sel_registerName(string name);
@@ -286,7 +317,7 @@ public partial class RecordingIndicator : Window
         {
             // Check if clicking on a button area (buttons are on the right)
             var pos = point.Position;
-            if (pos.X < Width - 120) // Not in button area
+            if (pos.X < Width - 240) // Not in button area
             {
                 _isDragging = true;
                 // Store screen position for accurate tracking
@@ -477,6 +508,7 @@ public partial class RecordingIndicator : Window
         TimerText.IsVisible = false;
         _targetOpacity = ListeningOpacity;
 
+        ShowNormalButtons();
         UpdatePauseButtonState();
         _recordingTimer.Stop();
         _updateTimer.Start();
@@ -578,6 +610,26 @@ public partial class RecordingIndicator : Window
         }
     }
 
+    public async void ShowLowConfidence()
+    {
+        _isRecording = false;
+        StatusText.Text = "Low confidence";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 160, 80)); // Orange
+        TimerText.IsVisible = false;
+        Opacity = ActiveOpacity;
+
+        _recordingTimer.Stop();
+
+        if (!IsVisible) ShowWithoutActivation();
+
+        await Task.Delay(800);
+
+        if (StatusText.Text == "Low confidence")
+        {
+            ShowListening();
+        }
+    }
+
     public void ClearVolumeHistory()
     {
         Array.Clear(_volumeHistory, 0, _volumeHistory.Length);
@@ -596,8 +648,11 @@ public partial class RecordingIndicator : Window
         PlayIcon.IsVisible = _isPaused;
     }
 
+    private bool _longRecordButtonConfigured;
+
     public void SetLongRecordButtonVisible(bool visible)
     {
+        _longRecordButtonConfigured = visible;
         LongRecordButton.IsVisible = visible;
     }
 
@@ -621,11 +676,90 @@ public partial class RecordingIndicator : Window
         PauseButton.IsEnabled = false;
         StopButton.IsEnabled = false;
         SettingsButton.IsEnabled = false;
+        HistoryButton.IsEnabled = false;
+        CalibrateButton.IsEnabled = false;
 
         _updateTimer.Start();
         _recordingTimer.Start();
 
         if (!IsVisible) ShowWithoutActivation();
+    }
+
+    private const double NormalWidth = 500;
+    private const double PttWidth = 280;
+
+    public void ShowPushToTalk()
+    {
+        _isLongRecording = true; // Reuse long recording timer logic
+        _isRecording = true;
+        _longRecordingStartTime = DateTime.Now;
+
+        StatusText.Text = "Push to Talk";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(100, 200, 255)); // Cyan/teal
+        TimerText.Text = "0:00";
+        TimerText.IsVisible = true;
+        _targetOpacity = ActiveOpacity;
+
+        // Compact layout: hide all normal buttons, show only Pin
+        Width = PttWidth;
+        LongRecordButton.IsVisible = false;
+        PauseButton.IsVisible = false;
+        StopButton.IsVisible = false;
+        HistoryButton.IsVisible = false;
+        CalibrateButton.IsVisible = false;
+        SettingsButton.IsVisible = false;
+        PinButton.IsVisible = true;
+
+        _updateTimer.Start();
+        _recordingTimer.Start();
+
+        // Center the narrow bar on screen
+        if (Screens.Primary is { } screen)
+        {
+            var workArea = screen.WorkingArea;
+            Position = new PixelPoint(
+                workArea.X + (workArea.Width - (int)PttWidth) / 2,
+                Position.Y >= 0 ? Position.Y : workArea.Y + workArea.Height - (int)Height - 40
+            );
+        }
+
+        if (!IsVisible && !_isOffScreen) ShowWithoutActivation();
+        if (_isOffScreen)
+        {
+            // Bring back from off-screen
+            _isOffScreen = false;
+            if (Screens.Primary is { } s)
+            {
+                var wa = s.WorkingArea;
+                Position = new PixelPoint(
+                    wa.X + (wa.Width - (int)PttWidth) / 2,
+                    wa.Y + wa.Height - (int)Height - 40
+                );
+            }
+        }
+    }
+
+    public void ShowPushToTalkStopped()
+    {
+        _isLongRecording = false;
+        // Don't call ShowNormalButtons() here — keep narrow width through
+        // the transcribing/typing phase. Width is restored when transitioning
+        // to ShowListening() (pin case) or HideCompletely() (normal PTT).
+    }
+
+    /// <summary>
+    /// Restores the normal button layout and full width (hides Pin, shows all standard buttons).
+    /// </summary>
+    private void ShowNormalButtons()
+    {
+        Width = NormalWidth;
+        PinButton.IsVisible = false;
+        LongRecordButton.IsVisible = _longRecordButtonConfigured;
+        PauseButton.IsVisible = true;
+        StopButton.IsVisible = true;
+        HistoryButton.IsVisible = true;
+        CalibrateButton.IsVisible = true;
+        SettingsButton.IsVisible = true;
     }
 
     public void ShowLongRecordingStopped()
@@ -636,17 +770,105 @@ public partial class RecordingIndicator : Window
         PauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
         SettingsButton.IsEnabled = true;
+        HistoryButton.IsEnabled = true;
+        CalibrateButton.IsEnabled = true;
 
         // Restore button icon
         LongRecordIcon.IsVisible = true;
         LongRecordStopIcon.IsVisible = false;
     }
 
+    private DispatcherTimer? _startupDismissTimer;
+
+    public void ShowStartupNotification()
+    {
+        _isRecording = false;
+        StatusText.Text = "Whisper Keyboard";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200));
+        TimerText.Text = "Look for icon in system tray";
+        TimerText.Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 140));
+        TimerText.FontSize = 12;
+        TimerText.FontWeight = FontWeight.Normal;
+        TimerText.IsVisible = true;
+
+        // Hide all buttons
+        LongRecordButton.IsVisible = false;
+        PauseButton.IsVisible = false;
+        StopButton.IsVisible = false;
+        HistoryButton.IsVisible = false;
+        CalibrateButton.IsVisible = false;
+        SettingsButton.IsVisible = false;
+        PinButton.IsVisible = false;
+
+        Width = 320;
+        Opacity = 0;
+        _targetOpacity = 0.85;
+        _updateTimer.Start();
+
+        ResetToDefaultPosition();
+        ShowWithoutActivation();
+
+        // Auto-dismiss after 3 seconds
+        _startupDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _startupDismissTimer.Tick += (s, e) =>
+        {
+            _startupDismissTimer.Stop();
+            _startupDismissTimer = null;
+            // Fade out then hide
+            _targetOpacity = 0;
+            _fadeOutDelayStart = DateTime.Now.AddMilliseconds(-FadeOutDelayMs); // Skip delay
+
+            // Schedule hide after fade completes
+            var hideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            hideTimer.Tick += (s2, e2) =>
+            {
+                ((DispatcherTimer)s2!).Stop();
+                _updateTimer.Stop();
+                // Restore normal timer text styling
+                TimerText.Foreground = new SolidColorBrush(Color.FromRgb(100, 255, 100));
+                TimerText.FontSize = 18;
+                TimerText.FontWeight = FontWeight.Bold;
+                TimerText.IsVisible = false;
+                ShowNormalButtons();
+                HideCompletely();
+            };
+            hideTimer.Start();
+        };
+        _startupDismissTimer.Start();
+    }
+
+    public void DismissStartupNotification()
+    {
+        if (_startupDismissTimer != null)
+        {
+            _startupDismissTimer.Stop();
+            _startupDismissTimer = null;
+        }
+        // Restore normal timer text styling
+        TimerText.Foreground = new SolidColorBrush(Color.FromRgb(100, 255, 100));
+        TimerText.FontSize = 18;
+        TimerText.FontWeight = FontWeight.Bold;
+        TimerText.IsVisible = false;
+        ShowNormalButtons();
+    }
+
     public void HideCompletely()
     {
         _updateTimer.Stop();
         _recordingTimer.Stop();
-        Hide();
+
+        if (_hasBeenShown && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Move off-screen instead of hiding to avoid focus-stealing on re-show
+            _savedPosition = Position;
+            _isOffScreen = true;
+            Opacity = 0;
+            Position = new PixelPoint(-10000, -10000);
+        }
+        else
+        {
+            Hide();
+        }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

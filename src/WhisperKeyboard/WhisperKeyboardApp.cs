@@ -21,12 +21,15 @@ public class WhisperKeyboardApp : IDisposable
     private readonly RecordingIndicator _recordingIndicator;
     private readonly GlobalHotkey _globalHotkey;
     private readonly TextProcessor _textProcessor;
+    private PushToTalkHook? _pushToTalkHook;
 
     private bool _isListening;
     private bool _isPaused;
     private bool _isStandby; // True when wake words enabled and waiting for wake word
     private bool _isTranscribing;
     private bool _isLongRecording;
+    private bool _isPushToTalking;
+    private bool _wasPushToTalking; // Track if audio came from PTT for post-transcription behavior
     private bool _wasLongRecording; // Track if audio came from long recording for transcription method
     private DateTime _ignoreUntil = DateTime.MinValue;
     private bool _disposed;
@@ -75,8 +78,11 @@ public class WhisperKeyboardApp : IDisposable
                 PauseListening();
         };
         _recordingIndicator.OnStopClicked += StopListening;
-        _recordingIndicator.OnSettingsClicked += ShowSettings;
+        _recordingIndicator.OnSettingsClicked += () => ShowSettings();
         _recordingIndicator.OnLongRecordClicked += ToggleLongRecording;
+        _recordingIndicator.OnHistoryClicked += () => ShowSettings(initialTab: 5);
+        _recordingIndicator.OnCalibrateClicked += ShowCalibration;
+        _recordingIndicator.OnPinClicked += PinFromPushToTalk;
 
         // Set long record button visibility based on config
         _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
@@ -84,14 +90,29 @@ public class WhisperKeyboardApp : IDisposable
         // Register global hotkeys
         RegisterHotkeys();
 
+        // Setup push-to-talk hook
+        if (_config.PushToTalkEnabled && OperatingSystem.IsWindows())
+        {
+            _pushToTalkHook = new PushToTalkHook();
+            _pushToTalkHook.Started += StartPushToTalk;
+            _pushToTalkHook.Stopped += StopPushToTalk;
+        }
+
         // Start listening automatically if configured
         if (string.IsNullOrEmpty(_config.ApiKey))
         {
             Console.WriteLine("API Key not configured. Please set OPENAI_API_KEY or configure in settings.");
+            // Show startup notification so user knows the app is running
+            _recordingIndicator.ShowStartupNotification();
         }
         else if (_config.StartListeningOnLaunch)
         {
             StartListening();
+        }
+        else
+        {
+            // App is idle — show brief startup notification
+            _recordingIndicator.ShowStartupNotification();
         }
     }
 
@@ -118,7 +139,7 @@ public class WhisperKeyboardApp : IDisposable
         // Open settings hotkey
         if (!string.IsNullOrWhiteSpace(_config.OpenSettingsHotkey))
         {
-            _globalHotkey.Register(_config.OpenSettingsHotkey, ShowSettings);
+            _globalHotkey.Register(_config.OpenSettingsHotkey, () => ShowSettings());
         }
 
         // Long recording hotkey
@@ -175,6 +196,9 @@ public class WhisperKeyboardApp : IDisposable
 
         try
         {
+            // Dismiss startup notification if active
+            _recordingIndicator.DismissStartupNotification();
+
             _audioCapture.Start();
             _isListening = true;
             _isPaused = false;
@@ -341,7 +365,7 @@ public class WhisperKeyboardApp : IDisposable
         });
     }
 
-    private bool _showingTooShort;
+    private bool _showingTemporaryStatus;
 
     private void OnSpeechDetected(object? sender, bool isSpeaking)
     {
@@ -363,7 +387,7 @@ public class WhisperKeyboardApp : IDisposable
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Speech detected - recording started");
                 }
             }
-            else if (_isListening && !_isPaused && !_isTranscribing && !_showingTooShort)
+            else if (_isListening && !_isPaused && !_isTranscribing && !_showingTemporaryStatus)
             {
                 if (_isStandby)
                 {
@@ -397,6 +421,9 @@ public class WhisperKeyboardApp : IDisposable
 
         _isTranscribing = true;
 
+        // Pause mic capture during transcription so we don't pick up stray audio
+        _audioCapture.Pause();
+
         // Create a new cancellation token source for this transcription
         _transcriptionCts?.Dispose();
         _transcriptionCts = new CancellationTokenSource();
@@ -408,11 +435,13 @@ public class WhisperKeyboardApp : IDisposable
             _recordingIndicator.ShowTranscribing();
         });
 
-        // Check if this audio came from a long recording
+        // Check if this audio came from a long recording or PTT
         var isFromLongRecording = _wasLongRecording;
-        _wasLongRecording = false; // Reset flag
+        var isFromPushToTalk = _wasPushToTalking;
+        _wasLongRecording = false;
+        _wasPushToTalking = false;
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, long recording: {isFromLongRecording}, sending to API...");
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, long recording: {isFromLongRecording}, PTT: {isFromPushToTalk}, sending to API...");
 
         try
         {
@@ -439,29 +468,19 @@ public class WhisperKeyboardApp : IDisposable
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribed: \"{result.Text}\"");
 
-                // Handle wake word / pause word logic
-                if (_config.WakeWordsEnabled)
+                // Confidence check (skip for long recordings which are more reliable)
+                if (!isFromLongRecording && IsLowConfidence(result))
                 {
-                    await HandleWakeWordModeAsync(result, totalDuration);
+                    ShowLowConfidence();
+                }
+                // Handle wake word / pause word logic
+                else if (_config.WakeWordsEnabled)
+                {
+                    await HandleWakeWordModeAsync(result);
                 }
                 else
                 {
-                    // Check minimum duration - if too short and not a special command, show "Too short"
-                    // Exit words bypass minimum duration check (e.g., "over", "enter")
-                    bool isExitWordOnly = _textProcessor.IsOnlyExitWord(result.Text);
-                    if (totalDuration.TotalSeconds < _config.MinAudioDuration && !isExitWordOnly)
-                    {
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{result.Text}\"");
-                        ShowTooShort();
-                    }
-                    else
-                    {
-                        if (isExitWordOnly)
-                        {
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Exit word detected, bypassing min duration check");
-                        }
-                        await TypeTranscriptionAsync(result);
-                    }
+                    await TypeTranscriptionAsync(result);
                 }
             }
             else
@@ -481,9 +500,20 @@ public class WhisperKeyboardApp : IDisposable
         {
             _isTranscribing = false;
 
-            if (_isListening && !_isPaused)
+            if (isFromPushToTalk)
             {
-                // Delay before returning to listening/standby mode
+                // PTT: stop listening and hide the toolbar after a brief delay
+                await Task.Delay(500);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    StopListening();
+                });
+            }
+            else if (_isListening && !_isPaused)
+            {
+                // Resume mic capture and return to listening/standby mode
+                _audioCapture.Resume();
+
                 await Task.Delay(500);
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -502,18 +532,81 @@ public class WhisperKeyboardApp : IDisposable
         }
     }
 
-    private void ShowTooShort()
+    private bool IsLowConfidence(TranscriptionResult result)
+    {
+        // Ramped confidence thresholds based on word count:
+        //   1-3 words:  strictest  (avg_logprob >= -0.5, no_speech_prob <= 0.4)
+        //   4-10 words: moderate   (avg_logprob >= -0.7, no_speech_prob <= 0.5)
+        //   11-20 words: lenient   (avg_logprob >= -1.0, no_speech_prob <= 0.7)
+        //   21+ words:  floor only (avg_logprob >= -1.5, no_speech_prob <= 0.8)
+        // Compression ratio and absolute floor always apply.
+
+        int words = result.WordCount;
+
+        double logProbThreshold;
+        double noSpeechThreshold;
+
+        if (words <= 3)
+        {
+            logProbThreshold = -0.5;
+            noSpeechThreshold = 0.4;
+        }
+        else if (words <= 10)
+        {
+            // Lerp from strict (-0.5) to moderate (-0.7) over 4-10 words
+            double t = (words - 3.0) / 7.0;
+            logProbThreshold = -0.5 + t * (-0.7 - (-0.5));
+            noSpeechThreshold = 0.4 + t * (0.5 - 0.4);
+        }
+        else if (words <= 20)
+        {
+            // Lerp from moderate (-0.7) to lenient (-1.0) over 11-20 words
+            double t = (words - 10.0) / 10.0;
+            logProbThreshold = -0.7 + t * (-1.0 - (-0.7));
+            noSpeechThreshold = 0.5 + t * (0.7 - 0.5);
+        }
+        else
+        {
+            // Floor: most lenient, but still filters garbage
+            logProbThreshold = -1.5;
+            noSpeechThreshold = 0.8;
+        }
+
+        double compressionThreshold = 2.4;
+
+        if (result.AvgLogProb < logProbThreshold)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Low confidence (avg_logprob {result.AvgLogProb:F3} < {logProbThreshold:F2}, words={words}): \"{result.Text}\"");
+            return true;
+        }
+
+        if (result.NoSpeechProb > noSpeechThreshold)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Low confidence (no_speech_prob {result.NoSpeechProb:F3} > {noSpeechThreshold:F2}, words={words}): \"{result.Text}\"");
+            return true;
+        }
+
+        if (result.CompressionRatio > compressionThreshold)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Low confidence (compression_ratio {result.CompressionRatio:F2} > {compressionThreshold}, words={words}): \"{result.Text}\"");
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ShowLowConfidence()
     {
         Dispatcher.UIThread.Post(async () =>
         {
-            _showingTooShort = true;
-            _recordingIndicator.ShowTooShort();
+            _showingTemporaryStatus = true;
+            _recordingIndicator.ShowLowConfidence();
             await Task.Delay(1000);
-            _showingTooShort = false;
+            _showingTemporaryStatus = false;
         });
     }
 
-    private async Task HandleWakeWordModeAsync(TranscriptionResult result, TimeSpan totalDuration)
+    private async Task HandleWakeWordModeAsync(TranscriptionResult result)
     {
         var text = result.Text;
 
@@ -570,23 +663,8 @@ public class WhisperKeyboardApp : IDisposable
             }
             else
             {
-                // Not a pause word - check minimum duration before typing
-                // Exit words bypass minimum duration check (e.g., "over", "enter")
-                bool isExitWordOnly = _textProcessor.IsOnlyExitWord(text);
-                if (totalDuration.TotalSeconds < _config.MinAudioDuration && !isExitWordOnly)
-                {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio too short ({totalDuration.TotalSeconds:F2}s < {_config.MinAudioDuration}s), discarding: \"{text}\"");
-                    ShowTooShort();
-                }
-                else
-                {
-                    if (isExitWordOnly)
-                    {
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Exit word detected, bypassing min duration check");
-                    }
-                    // Normal transcription - type it
-                    await TypeTranscriptionAsync(result);
-                }
+                // Normal transcription - type it
+                await TypeTranscriptionAsync(result);
             }
         }
     }
@@ -704,13 +782,100 @@ public class WhisperKeyboardApp : IDisposable
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording stopped");
     }
 
-    public void ShowSettings()
+    private void StartPushToTalk()
+    {
+        if (_isPushToTalking || _isLongRecording || _isTranscribing)
+            return;
+
+        // Auto-start audio capture if not already listening
+        if (!_isListening)
+        {
+            try
+            {
+                _audioCapture.Start();
+                _isListening = true;
+                _isPaused = false;
+                _isStandby = false;
+                UpdateMenuState();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] PTT: Error starting audio: {ex.Message}");
+                return;
+            }
+        }
+
+        if (_isPaused || _isStandby)
+            return;
+
+        _isPushToTalking = true;
+        _audioCapture.StartLongRecording(); // Reuse long recording buffer (captures all audio, bypasses VAD)
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Push to Talk...");
+            _recordingIndicator.ShowPushToTalk();
+        });
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk started (Right Ctrl + Right Shift)");
+    }
+
+    private void PinFromPushToTalk()
+    {
+        if (!_isPushToTalking)
+            return;
+
+        // Stop PTT recording but keep the bar up in normal listening mode
+        _isPushToTalking = false;
+        _wasLongRecording = true;
+        _wasPushToTalking = false; // NOT a PTT exit — stay in listening mode after transcription
+        _audioCapture.StopLongRecording();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _recordingIndicator.ShowPushToTalkStopped();
+            UpdateStatus("Transcribing...");
+            _recordingIndicator.ShowTranscribing();
+        });
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk pinned — staying in listening mode");
+    }
+
+    private void StopPushToTalk()
+    {
+        if (!_isPushToTalking) return;
+
+        _isPushToTalking = false;
+        _wasPushToTalking = true;
+        _wasLongRecording = true; // Route through long recording transcription path
+        _audioCapture.StopLongRecording();
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateStatus("Transcribing...");
+            _recordingIndicator.ShowPushToTalkStopped();
+            _recordingIndicator.ShowTranscribing();
+        });
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk stopped");
+    }
+
+    public void ShowSettings(int initialTab = 0)
     {
         Dispatcher.UIThread.Post(() =>
         {
-            var settingsWindow = new SettingsWindow(_config, _history);
+            var settingsWindow = new SettingsWindow(_config, _history, _audioCapture, initialTab: initialTab);
             settingsWindow.SettingsSaved += OnSettingsSaved;
             settingsWindow.Show();
+        });
+    }
+
+    private void ShowCalibration()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var calibrationWindow = new CalibrationWindow(_audioCapture, _config);
+            calibrationWindow.Show();
         });
     }
 
@@ -741,6 +906,7 @@ public class WhisperKeyboardApp : IDisposable
         _transcriptionCts?.Dispose();
         _longRecordingCts?.Cancel();
         _longRecordingCts?.Dispose();
+        _pushToTalkHook?.Dispose();
         _globalHotkey.Dispose();
         _audioCapture.Stop();
         _audioCapture.Dispose();

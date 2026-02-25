@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NAudio.Lame;
 using NAudio.Wave;
 
@@ -76,12 +77,7 @@ public class SpeechTranscriber : IDisposable
                 return null;
             }
 
-            return new TranscriptionResult
-            {
-                Text = result.Text ?? "",
-                Language = result.Language ?? "",
-                Confidence = 1.0
-            };
+            return BuildResult(result);
         }
         catch (Exception ex)
         {
@@ -238,12 +234,7 @@ public class SpeechTranscriber : IDisposable
             }
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording transcription complete");
-            return new TranscriptionResult
-            {
-                Text = result.Text ?? "",
-                Language = result.Language ?? "",
-                Confidence = 1.0
-            };
+            return BuildResult(result);
         }
         catch (Exception ex)
         {
@@ -260,10 +251,53 @@ public class SpeechTranscriber : IDisposable
         _disposed = true;
     }
 
+    private static TranscriptionResult BuildResult(WhisperApiResponse response)
+    {
+        var result = new TranscriptionResult
+        {
+            Text = response.Text ?? "",
+            Language = response.Language ?? ""
+        };
+
+        if (response.Segments != null && response.Segments.Count > 0)
+        {
+            result.AvgLogProb = response.Segments.Average(s => s.AvgLogprob);
+            result.NoSpeechProb = response.Segments.Max(s => s.NoSpeechProb);
+            result.CompressionRatio = response.Segments.Average(s => s.CompressionRatio);
+
+            // Convert avg_logprob to a 0-1 confidence score
+            // Typical range: -1.0 (low confidence) to 0.0 (high confidence)
+            result.Confidence = Math.Clamp(1.0 + result.AvgLogProb, 0.0, 1.0);
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Whisper confidence: avg_logprob={result.AvgLogProb:F3}, no_speech_prob={result.NoSpeechProb:F3}, compression_ratio={result.CompressionRatio:F2}, words={result.WordCount}");
+        }
+        else
+        {
+            result.Confidence = 1.0;
+        }
+
+        return result;
+    }
+
     private class WhisperApiResponse
     {
         public string? Text { get; set; }
         public string? Language { get; set; }
         public double? Duration { get; set; }
+        public List<WhisperSegment>? Segments { get; set; }
+    }
+
+    private class WhisperSegment
+    {
+        public int Id { get; set; }
+        public string Text { get; set; } = "";
+        public double Start { get; set; }
+        public double End { get; set; }
+        [JsonPropertyName("avg_logprob")]
+        public double AvgLogprob { get; set; }
+        [JsonPropertyName("no_speech_prob")]
+        public double NoSpeechProb { get; set; }
+        [JsonPropertyName("compression_ratio")]
+        public double CompressionRatio { get; set; } = 1.0;
     }
 }

@@ -8,7 +8,7 @@
         CanResize="False">
 
     <Grid RowDefinitions="*,Auto">
-        <TabControl Grid.Row="0" Margin="10">
+        <TabControl x:Name="MainTabControl" Grid.Row="0" Margin="10">
 
             <!-- Audio Tab -->
             <TabItem Header="Audio">
@@ -25,6 +25,10 @@
                                 <TextBlock x:Name="ThresholdLabel" DockPanel.Dock="Right" Text="500" FontSize="12" Foreground="#888888"/>
                             </DockPanel>
                             <Slider x:Name="ThresholdSlider" Minimum="10" Maximum="5000" Value="500"/>
+                            <Border Background="#141414" CornerRadius="3" Height="16" ClipToBounds="True">
+                                <Canvas x:Name="VolumeMeterCanvas" />
+                            </Border>
+                            <TextBlock Text="Yellow line = threshold. Green = below, Red = above (speech detected)." FontSize="10" Foreground="#666666"/>
                         </StackPanel>
 
                         <StackPanel Spacing="5">

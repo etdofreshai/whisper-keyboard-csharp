@@ -1,8 +1,11 @@
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Controls;
+using AvaloniaShapes = Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Microsoft.Win32;
 using WhisperKeyboard.Core;
 
@@ -12,17 +15,22 @@ public partial class SettingsWindow : Window
 {
     private readonly Config _config;
     private readonly TranscriptionHistory? _history;
+    private readonly IAudioCapture? _audioCapture;
+    private readonly int _initialTab;
     private TextBox? _activeHotkeyBox;
+    private double _currentVolume;
 
     public event EventHandler? SettingsSaved;
 
     public SettingsWindow() : this(Config.Load(), null) { }
 
-    public SettingsWindow(Config config, TranscriptionHistory? history = null)
+    public SettingsWindow(Config config, TranscriptionHistory? history = null, IAudioCapture? audioCapture = null, int initialTab = 0)
     {
         InitializeComponent();
         _config = config;
         _history = history;
+        _audioCapture = audioCapture;
+        _initialTab = initialTab;
 
         // Threshold slider label update
         ThresholdSlider.PropertyChanged += (s, e) =>
@@ -30,6 +38,7 @@ public partial class SettingsWindow : Window
             if (e.Property.Name == "Value")
             {
                 ThresholdLabel.Text = ((int)ThresholdSlider.Value).ToString();
+                DrawVolumeMeter();
             }
         };
 
@@ -40,6 +49,103 @@ public partial class SettingsWindow : Window
         };
 
         LoadSettings();
+
+        if (_initialTab > 0)
+        {
+            MainTabControl.SelectedIndex = _initialTab;
+        }
+
+        // Start volume monitoring
+        if (_audioCapture != null)
+        {
+            _audioCapture.VolumeChanged += OnVolumeChanged;
+        }
+
+        Closed += OnWindowClosed;
+    }
+
+    private void OnVolumeChanged(object? sender, double volume)
+    {
+        _currentVolume = volume;
+        Dispatcher.UIThread.Post(DrawVolumeMeter);
+    }
+
+    private void DrawVolumeMeter()
+    {
+        if (VolumeMeterCanvas == null) return;
+
+        VolumeMeterCanvas.Children.Clear();
+
+        var width = VolumeMeterCanvas.Bounds.Width;
+        var height = VolumeMeterCanvas.Bounds.Height;
+        if (width <= 0 || height <= 0) return;
+
+        var threshold = ThresholdSlider.Value;
+        var maxValue = ThresholdSlider.Maximum;
+
+        // Draw background
+        var bg = new AvaloniaShapes.Rectangle
+        {
+            Width = width,
+            Height = height,
+            Fill = new SolidColorBrush(Color.FromRgb(30, 30, 30))
+        };
+        VolumeMeterCanvas.Children.Add(bg);
+
+        // Draw volume bar
+        var volumeRatio = Math.Min(1.0, _currentVolume / maxValue);
+        var volumeWidth = volumeRatio * width;
+
+        if (volumeWidth > 0)
+        {
+            // Green below threshold, red above
+            var thresholdX = (threshold / maxValue) * width;
+
+            // Green portion (below threshold)
+            var greenWidth = Math.Min(volumeWidth, thresholdX);
+            if (greenWidth > 0)
+            {
+                var greenBar = new AvaloniaShapes.Rectangle
+                {
+                    Width = greenWidth,
+                    Height = height,
+                    Fill = new SolidColorBrush(Color.FromRgb(50, 180, 50))
+                };
+                VolumeMeterCanvas.Children.Add(greenBar);
+            }
+
+            // Red portion (above threshold)
+            if (volumeWidth > thresholdX)
+            {
+                var redBar = new AvaloniaShapes.Rectangle
+                {
+                    Width = volumeWidth - thresholdX,
+                    Height = height,
+                    Fill = new SolidColorBrush(Color.FromRgb(220, 60, 60))
+                };
+                Canvas.SetLeft(redBar, thresholdX);
+                VolumeMeterCanvas.Children.Add(redBar);
+            }
+        }
+
+        // Draw threshold marker line
+        var thresholdPos = (threshold / maxValue) * width;
+        var markerLine = new AvaloniaShapes.Line
+        {
+            StartPoint = new Point(thresholdPos, 0),
+            EndPoint = new Point(thresholdPos, height),
+            Stroke = new SolidColorBrush(Color.FromRgb(255, 200, 50)),
+            StrokeThickness = 2
+        };
+        VolumeMeterCanvas.Children.Add(markerLine);
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        if (_audioCapture != null)
+        {
+            _audioCapture.VolumeChanged -= OnVolumeChanged;
+        }
     }
 
     private void LoadSettings()
