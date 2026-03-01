@@ -767,10 +767,19 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
 }
 
 /// <summary>
+/// Interface for platform-specific push-to-talk hooks.
+/// </summary>
+public interface IPushToTalkHook : IDisposable
+{
+    event Action? Started;
+    event Action? Stopped;
+}
+
+/// <summary>
 /// Push-to-Talk hook using WH_KEYBOARD_LL to detect Right Ctrl + Right Shift hold/release.
 /// Windows-only. Fires Started when both keys are held, Stopped when either is released.
 /// </summary>
-public class PushToTalkHook : IDisposable
+public class PushToTalkHook : IPushToTalkHook
 {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
@@ -966,6 +975,281 @@ public class PushToTalkHook : IDisposable
         }
 
         _hookThread?.Join(1000);
+        _hookReady.Dispose();
+    }
+}
+
+/// <summary>
+/// Push-to-Talk hook for macOS using CGEventTap to detect Right Ctrl + Right Shift hold/release.
+/// Monitors kCGEventFlagsChanged events to track modifier key state.
+/// Requires Input Monitoring permission (System Settings > Privacy & Security > Input Monitoring).
+/// </summary>
+public class PushToTalkHookMacOS : IPushToTalkHook
+{
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate IntPtr CGEventTapCallbackDelegate(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo);
+
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern IntPtr CGEventTapCreate(
+        int tap, int place, int options, ulong eventsOfInterest,
+        CGEventTapCallbackDelegate callback, IntPtr userInfo);
+
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern void CGEventTapEnable(IntPtr tap, bool enable);
+
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern long CGEventGetIntegerValueField(IntPtr eventRef, int field);
+
+    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+    private static extern ulong CGEventGetFlags(IntPtr eventRef);
+
+    [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CGPreflightListenEventAccess();
+
+    [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CGRequestListenEventAccess();
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFMachPortCreateRunLoopSource(IntPtr allocator, IntPtr port, int order);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFRunLoopGetCurrent();
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopAddSource(IntPtr rl, IntPtr source, IntPtr mode);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopRemoveSource(IntPtr rl, IntPtr source, IntPtr mode);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopRun();
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRunLoopStop(IntPtr rl);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern void CFRelease(IntPtr cf);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string cStr, int encoding);
+
+    // CGEventTap constants
+    private const int kCGSessionEventTap = 1;
+    private const int kCGHeadInsertEventTap = 0;
+    private const int kCGEventTapOptionListenOnly = 1;
+
+    // CGEvent types
+    private const int kCGEventFlagsChanged = 12;
+
+    // kCGKeyboardEventKeycode field index
+    private const int kCGKeyboardEventKeycode = 9;
+
+    // macOS virtual key codes for right-side modifiers
+    private const long kVK_RightShift = 0x3C;   // 60
+    private const long kVK_RightControl = 0x3E;  // 62
+
+    // CGEvent modifier flags
+    private const ulong kCGEventFlagMaskShift = 0x00020000;
+    private const ulong kCGEventFlagMaskControl = 0x00040000;
+
+    // CFString encoding
+    private const int kCFStringEncodingUTF8 = 0x08000100;
+    private const string kCFRunLoopDefaultMode = "kCFRunLoopDefaultMode";
+
+    // State
+    private IntPtr _eventTap;
+    private IntPtr _runLoopSource;
+    private IntPtr _runLoop;
+    private CGEventTapCallbackDelegate? _callbackDelegate;
+    private Thread? _runLoopThread;
+    private volatile bool _stopRequested;
+    private bool _disposed;
+    private readonly ManualResetEventSlim _hookReady = new(false);
+
+    // Key state tracking
+    private bool _rCtrlDown;
+    private bool _rShiftDown;
+    private bool _isActive;
+
+    public event Action? Started;
+    public event Action? Stopped;
+
+    public PushToTalkHookMacOS()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            Console.WriteLine("PushToTalkHookMacOS is only supported on macOS");
+            _hookReady.Set();
+            return;
+        }
+
+        // Check Input Monitoring permission
+        if (!CGPreflightListenEventAccess())
+        {
+            Console.WriteLine("Input Monitoring permission not granted. Requesting...");
+            Console.WriteLine("Go to System Settings > Privacy & Security > Input Monitoring and add this app.");
+            CGRequestListenEventAccess();
+        }
+
+        _runLoopThread = new Thread(RunEventTapThread)
+        {
+            Name = "PushToTalkHookThread",
+            IsBackground = true
+        };
+        _runLoopThread.Start();
+
+        if (!_hookReady.Wait(5000))
+        {
+            Console.WriteLine("Timeout waiting for macOS PTT hook to be installed");
+        }
+    }
+
+    private void RunEventTapThread()
+    {
+        try
+        {
+            _callbackDelegate = EventTapCallback;
+
+            // Listen for kCGEventFlagsChanged (modifier key state changes)
+            ulong eventsOfInterest = 1UL << kCGEventFlagsChanged;
+
+            _eventTap = CGEventTapCreate(
+                kCGSessionEventTap,
+                kCGHeadInsertEventTap,
+                kCGEventTapOptionListenOnly,
+                eventsOfInterest,
+                _callbackDelegate,
+                IntPtr.Zero);
+
+            if (_eventTap == IntPtr.Zero)
+            {
+                Console.WriteLine(
+                    "Failed to create PTT event tap. " +
+                    "Ensure Input Monitoring permission is granted in " +
+                    "System Settings > Privacy & Security > Input Monitoring.");
+                _hookReady.Set();
+                return;
+            }
+
+            _runLoopSource = CFMachPortCreateRunLoopSource(IntPtr.Zero, _eventTap, 0);
+            if (_runLoopSource == IntPtr.Zero)
+            {
+                Console.WriteLine("Failed to create PTT run loop source");
+                CFRelease(_eventTap);
+                _eventTap = IntPtr.Zero;
+                _hookReady.Set();
+                return;
+            }
+
+            _runLoop = CFRunLoopGetCurrent();
+
+            var modeStr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
+            CFRunLoopAddSource(_runLoop, _runLoopSource, modeStr);
+            CGEventTapEnable(_eventTap, true);
+            CFRelease(modeStr);
+
+            Console.WriteLine("Push-to-Talk event tap installed (macOS, Right Ctrl + Right Shift)");
+            _hookReady.Set();
+
+            while (!_stopRequested)
+            {
+                CFRunLoopRun();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in macOS PTT hook thread: {ex.Message}");
+            _hookReady.Set();
+        }
+    }
+
+    private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
+    {
+        // Handle event tap disabled by timeout — re-enable it
+        if (type != kCGEventFlagsChanged)
+        {
+            if (_eventTap != IntPtr.Zero)
+            {
+                Console.WriteLine("PTT event tap was disabled, re-enabling...");
+                CGEventTapEnable(_eventTap, true);
+            }
+            return eventRef;
+        }
+
+        // Get which key triggered this flags-changed event
+        long keyCode = CGEventGetIntegerValueField(eventRef, kCGKeyboardEventKeycode);
+        ulong flags = CGEventGetFlags(eventRef);
+
+        // Track right-side modifier keys only.
+        // keyCode tells us WHICH key changed, flags tell us current state.
+        if (keyCode == kVK_RightControl)
+        {
+            _rCtrlDown = (flags & kCGEventFlagMaskControl) != 0;
+        }
+        else if (keyCode == kVK_RightShift)
+        {
+            _rShiftDown = (flags & kCGEventFlagMaskShift) != 0;
+        }
+
+        bool bothDown = _rCtrlDown && _rShiftDown;
+
+        if (bothDown && !_isActive)
+        {
+            _isActive = true;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try { Started?.Invoke(); }
+                catch (Exception ex) { Console.WriteLine($"PTT Started callback error: {ex.Message}"); }
+            });
+        }
+        else if (!bothDown && _isActive)
+        {
+            _isActive = false;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try { Stopped?.Invoke(); }
+                catch (Exception ex) { Console.WriteLine($"PTT Stopped callback error: {ex.Message}"); }
+            });
+        }
+
+        return eventRef;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _stopRequested = true;
+
+        if (_runLoop != IntPtr.Zero)
+        {
+            CFRunLoopStop(_runLoop);
+        }
+
+        _runLoopThread?.Join(1000);
+
+        if (_runLoopSource != IntPtr.Zero)
+        {
+            var modeStr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
+            if (_runLoop != IntPtr.Zero)
+            {
+                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modeStr);
+            }
+            CFRelease(modeStr);
+            CFRelease(_runLoopSource);
+            _runLoopSource = IntPtr.Zero;
+        }
+
+        if (_eventTap != IntPtr.Zero)
+        {
+            CGEventTapEnable(_eventTap, false);
+            CFRelease(_eventTap);
+            _eventTap = IntPtr.Zero;
+        }
+
         _hookReady.Dispose();
     }
 }

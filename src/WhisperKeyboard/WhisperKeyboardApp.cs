@@ -21,7 +21,7 @@ public class WhisperKeyboardApp : IDisposable
     private readonly RecordingIndicator _recordingIndicator;
     private readonly GlobalHotkey _globalHotkey;
     private readonly TextProcessor _textProcessor;
-    private PushToTalkHook? _pushToTalkHook;
+    private IPushToTalkHook? _pushToTalkHook;
 
     private bool _isListening;
     private bool _isPaused;
@@ -91,11 +91,18 @@ public class WhisperKeyboardApp : IDisposable
         RegisterHotkeys();
 
         // Setup push-to-talk hook
-        if (_config.PushToTalkEnabled && OperatingSystem.IsWindows())
+        if (_config.PushToTalkEnabled)
         {
-            _pushToTalkHook = new PushToTalkHook();
-            _pushToTalkHook.Started += StartPushToTalk;
-            _pushToTalkHook.Stopped += StopPushToTalk;
+            if (OperatingSystem.IsWindows())
+                _pushToTalkHook = new PushToTalkHook();
+            else if (OperatingSystem.IsMacOS())
+                _pushToTalkHook = new PushToTalkHookMacOS();
+
+            if (_pushToTalkHook != null)
+            {
+                _pushToTalkHook.Started += StartPushToTalk;
+                _pushToTalkHook.Stopped += StopPushToTalk;
+            }
         }
 
         // Start listening automatically if configured
