@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace WhisperKeyboard;
@@ -5,6 +6,8 @@ namespace WhisperKeyboard;
 /// <summary>
 /// macOS key simulation using CGEvent APIs.
 /// Requires Accessibility permission to post events.
+/// When running from a .app bundle (Dock launch), the app itself must be added
+/// to System Settings > Privacy & Security > Accessibility.
 /// </summary>
 public static class MacOSInputSender
 {
@@ -64,6 +67,43 @@ public static class MacOSInputSender
         else
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] CGEvent post permission granted (Accessibility)");
+        }
+    }
+
+    /// <summary>
+    /// Verify that CGEvent posting actually works.
+    /// When running from a .app bundle, CGPreflightPostEventAccess() can return true
+    /// (inheriting Terminal's permission) even though CGEventPost silently fails.
+    /// This method re-checks permission and requests it if running from a bundle.
+    /// </summary>
+    public static void VerifyPostingWorks()
+    {
+        EnsurePermission();
+
+        // Detect .app bundle — the real permission check matters here
+        var bundlePath = GetAppBundlePath();
+        if (bundlePath != null)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MacOSInputSender: Running from .app bundle ({bundlePath})");
+
+            // When running from a .app bundle, CGPreflightPostEventAccess may return a
+            // cached/inherited result from Terminal. Force a fresh check by resetting and
+            // requesting again. The system will show the permission dialog if needed.
+            if (!CGPreflightPostEventAccess())
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MacOSInputSender: Accessibility permission NOT granted for this app bundle.");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MacOSInputSender: Typing will not work until you add this app to:");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}]   System Settings > Privacy & Security > Accessibility");
+                CGRequestPostEventAccess();
+            }
+            else
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MacOSInputSender: Accessibility permission appears granted for bundle");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] MacOSInputSender: Not running from .app bundle (CGEvent should work via Terminal permission)");
         }
     }
 
@@ -170,5 +210,34 @@ public static class MacOSInputSender
         CFRelease(keyUp);
         if (source != IntPtr.Zero)
             CFRelease(source);
+    }
+
+    // ObjC runtime for bundle detection
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_getClass")]
+    private static extern IntPtr objc_getClass(string className);
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "sel_registerName")]
+    private static extern IntPtr sel_registerName(string selectorName);
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static extern IntPtr objc_msgSend_retPtr(IntPtr receiver, IntPtr selector);
+
+    private static string? GetAppBundlePath()
+    {
+        try
+        {
+            var cls = objc_getClass("NSBundle");
+            if (cls == IntPtr.Zero) return null;
+            var bundle = objc_msgSend_retPtr(cls, sel_registerName("mainBundle"));
+            if (bundle == IntPtr.Zero) return null;
+            var pathObj = objc_msgSend_retPtr(bundle, sel_registerName("bundlePath"));
+            if (pathObj == IntPtr.Zero) return null;
+            var path = Marshal.PtrToStringUTF8(objc_msgSend_retPtr(pathObj, sel_registerName("UTF8String")));
+            return path != null && path.EndsWith(".app") ? path : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

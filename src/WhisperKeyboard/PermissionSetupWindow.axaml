@@ -1,0 +1,128 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WhisperKeyboard.PermissionSetupWindow"
+        Title="Whisper Keyboard - Permission Setup"
+        Width="480"
+        Height="380"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+
+    <Border Background="#1E1E1E" Padding="24">
+        <StackPanel Spacing="20">
+
+            <!-- Header -->
+            <StackPanel Spacing="6">
+                <TextBlock Text="macOS Permissions Required"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Whisper Keyboard needs system permissions to type text and detect hotkeys."
+                           FontSize="12"
+                           Foreground="#888888"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Accessibility Permission -->
+            <Border Background="#2A2A2A" CornerRadius="8" Padding="16">
+                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                    <Ellipse x:Name="AccessibilityStatusDot"
+                             Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
+                             Width="12" Height="12"
+                             Fill="#FF4444"
+                             VerticalAlignment="Center"
+                             Margin="0,0,12,0" />
+                    <TextBlock Grid.Column="1" Grid.Row="0"
+                               Text="Accessibility"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="White" />
+                    <TextBlock Grid.Column="1" Grid.Row="1"
+                               Text="Required to type transcribed text via simulated keystrokes."
+                               FontSize="11"
+                               Foreground="#888888"
+                               TextWrapping="Wrap"
+                               Margin="0,2,12,0" />
+                    <Button x:Name="OpenAccessibilityButton"
+                            Grid.Column="2" Grid.Row="0" Grid.RowSpan="2"
+                            Content="Open Settings"
+                            VerticalAlignment="Center"
+                            Padding="12,6"
+                            Background="#323232"
+                            Foreground="White"
+                            BorderThickness="1"
+                            BorderBrush="#444"
+                            CornerRadius="4"
+                            Click="OnOpenAccessibilityClick" />
+                </Grid>
+            </Border>
+
+            <!-- Input Monitoring Permission -->
+            <Border Background="#2A2A2A" CornerRadius="8" Padding="16">
+                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                    <Ellipse x:Name="InputMonitoringStatusDot"
+                             Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
+                             Width="12" Height="12"
+                             Fill="#FF4444"
+                             VerticalAlignment="Center"
+                             Margin="0,0,12,0" />
+                    <TextBlock Grid.Column="1" Grid.Row="0"
+                               Text="Input Monitoring"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="White" />
+                    <TextBlock Grid.Column="1" Grid.Row="1"
+                               Text="Required to detect global hotkeys and push-to-talk."
+                               FontSize="11"
+                               Foreground="#888888"
+                               TextWrapping="Wrap"
+                               Margin="0,2,12,0" />
+                    <Button x:Name="OpenInputMonitoringButton"
+                            Grid.Column="2" Grid.Row="0" Grid.RowSpan="2"
+                            Content="Open Settings"
+                            VerticalAlignment="Center"
+                            Padding="12,6"
+                            Background="#323232"
+                            Foreground="White"
+                            BorderThickness="1"
+                            BorderBrush="#444"
+                            CornerRadius="4"
+                            Click="OnOpenInputMonitoringClick" />
+                </Grid>
+            </Border>
+
+            <!-- Help text -->
+            <TextBlock Text="After granting permissions in System Settings, click 'Check Again'. You may need to restart the app for changes to take full effect."
+                       FontSize="10"
+                       Foreground="#666666"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center" />
+
+            <!-- Bottom buttons -->
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Spacing="12">
+                <Button x:Name="CheckAgainButton"
+                        Content="Check Again"
+                        Padding="16,8"
+                        Background="#323232"
+                        Foreground="White"
+                        BorderThickness="1"
+                        BorderBrush="#444"
+                        CornerRadius="4"
+                        Click="OnCheckAgainClick" />
+                <Button x:Name="ContinueButton"
+                        Content="Continue Anyway"
+                        Padding="16,8"
+                        Background="#323232"
+                        Foreground="#888888"
+                        BorderThickness="1"
+                        BorderBrush="#333"
+                        CornerRadius="4"
+                        Click="OnContinueClick" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

@@ -105,6 +105,12 @@ public class WhisperKeyboardApp : IDisposable
             }
         }
 
+        // Verify CGEvent posting works (detects Dock-launch permission issue on macOS)
+        if (OperatingSystem.IsMacOS())
+        {
+            MacOSInputSender.VerifyPostingWorks();
+        }
+
         // Start listening automatically if configured
         if (string.IsNullOrEmpty(_config.ApiKey))
         {
@@ -908,17 +914,22 @@ public class WhisperKeyboardApp : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-
-        _transcriptionCts?.Cancel();
-        _transcriptionCts?.Dispose();
-        _longRecordingCts?.Cancel();
-        _longRecordingCts?.Dispose();
-        _pushToTalkHook?.Dispose();
-        _globalHotkey.Dispose();
-        _audioCapture.Stop();
-        _audioCapture.Dispose();
-        _transcriber.Dispose();
-
         _disposed = true;
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Disposing WhisperKeyboardApp...");
+
+        try { _transcriptionCts?.Cancel(); } catch { }
+        try { _transcriptionCts?.Dispose(); } catch { }
+        try { _longRecordingCts?.Cancel(); } catch { }
+        try { _longRecordingCts?.Dispose(); } catch { }
+
+        try { _audioCapture.Stop(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error stopping audio: {ex.Message}"); }
+        try { _audioCapture.Dispose(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error disposing audio: {ex.Message}"); }
+
+        try { _pushToTalkHook?.Dispose(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error disposing PTT hook: {ex.Message}"); }
+        try { _globalHotkey.Dispose(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error disposing hotkey: {ex.Message}"); }
+        try { _transcriber.Dispose(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error disposing transcriber: {ex.Message}"); }
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Dispose complete");
     }
 }

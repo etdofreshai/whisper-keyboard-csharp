@@ -575,6 +575,8 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
 
     private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
     {
+        if (_disposed) return eventRef;
+
         // Handle event tap disabled events (type 0 = kCGEventTapDisabledByTimeout or kCGEventTapDisabledByUserInput)
         if (type == 0)
         {
@@ -725,6 +727,7 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
     public void Dispose()
     {
         if (_disposed) return;
+        _disposed = true;
 
         UnregisterAll();
         _stopRequested = true;
@@ -738,7 +741,7 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
         // Wait for thread to finish
         if (_runLoopThread != null && _runLoopThread.IsAlive)
         {
-            _runLoopThread.Join(1000); // Wait up to 1 second
+            _runLoopThread.Join(3000);
         }
 
         if (_runLoopSource != IntPtr.Zero)
@@ -761,8 +764,6 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
         }
 
         _eventTapReady.Dispose();
-
-        _disposed = true;
     }
 }
 
@@ -1166,6 +1167,8 @@ public class PushToTalkHookMacOS : IPushToTalkHook
 
     private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
     {
+        if (_disposed) return eventRef;
+
         // Handle event tap disabled by timeout — re-enable it
         if (type != kCGEventFlagsChanged)
         {
@@ -1219,7 +1222,8 @@ public class PushToTalkHookMacOS : IPushToTalkHook
             CFRunLoopStop(_runLoop);
         }
 
-        _runLoopThread?.Join(1000);
+        // Join timeout must exceed CFRunLoopRunInMode timeout (2s)
+        _runLoopThread?.Join(3000);
 
         if (_runLoopSource != IntPtr.Zero)
         {

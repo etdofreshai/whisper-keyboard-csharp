@@ -45,49 +45,75 @@ public partial class App : Application
             // Don't shutdown when the hidden window closes
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-            // Initialize the main app controller
-            _app = new WhisperKeyboardApp(desktop);
-
-            // Create tray icon programmatically
-            var trayMenu = new NativeMenu();
-            _app.SetupTrayMenu(trayMenu);
-
-            // Load tray icon from embedded resource
-            WindowIcon? icon = null;
-            try
+            // On macOS, check permissions before initializing when running from .app bundle
+            if (OperatingSystem.IsMacOS() && MacOSPermissions.IsRunningFromAppBundle()
+                && MacOSPermissions.AnyPermissionMissing())
             {
-                var iconUri = new Uri("avares://WhisperKeyboard/Assets/tray-icon.png");
-                using var stream = AssetLoader.Open(iconUri);
-                var bitmap = new Bitmap(stream);
-                icon = new WindowIcon(bitmap);
-                Console.WriteLine($"Loaded tray icon: {bitmap.Size.Width}x{bitmap.Size.Height}");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Missing macOS permissions - showing setup dialog");
+                var permissionWindow = new PermissionSetupWindow();
+                permissionWindow.SetupComplete += (s, e) =>
+                {
+                    InitializeApp(desktop);
+                };
+                permissionWindow.Closed += (s, e) =>
+                {
+                    // Handle X button close — still initialize the app
+                    if (_app == null)
+                        InitializeApp(desktop);
+                };
+                permissionWindow.Show();
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"Failed to load tray icon: {ex.Message}");
-            }
-
-            _trayIcon = new TrayIcon
-            {
-                ToolTipText = "Whisper Keyboard",
-                Icon = icon,
-                Menu = trayMenu,
-                IsVisible = true
-            };
-
-            // Add to application's tray icons
-            var icons = new TrayIcons { _trayIcon };
-            SetValue(TrayIcon.IconsProperty, icons);
-
-            // Hide from Dock on macOS (must be done after everything is set up)
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                // Use a timer to call this after the event loop starts
-                DispatcherTimer.RunOnce(() => MacOSHelper.HideFromDock(), TimeSpan.FromMilliseconds(100));
+                InitializeApp(desktop);
             }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void InitializeApp(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        // Initialize the main app controller
+        _app = new WhisperKeyboardApp(desktop);
+
+        // Create tray icon programmatically
+        var trayMenu = new NativeMenu();
+        _app.SetupTrayMenu(trayMenu);
+
+        // Load tray icon from embedded resource
+        WindowIcon? icon = null;
+        try
+        {
+            var iconUri = new Uri("avares://WhisperKeyboard/Assets/tray-icon.png");
+            using var stream = AssetLoader.Open(iconUri);
+            var bitmap = new Bitmap(stream);
+            icon = new WindowIcon(bitmap);
+            Console.WriteLine($"Loaded tray icon: {bitmap.Size.Width}x{bitmap.Size.Height}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load tray icon: {ex.Message}");
+        }
+
+        _trayIcon = new TrayIcon
+        {
+            ToolTipText = "Whisper Keyboard",
+            Icon = icon,
+            Menu = trayMenu,
+            IsVisible = true
+        };
+
+        // Add to application's tray icons
+        var icons = new TrayIcons { _trayIcon };
+        SetValue(TrayIcon.IconsProperty, icons);
+
+        // Hide from Dock on macOS (must be done after everything is set up)
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            // Use a timer to call this after the event loop starts
+            DispatcherTimer.RunOnce(() => MacOSHelper.HideFromDock(), TimeSpan.FromMilliseconds(100));
+        }
     }
 }
 
