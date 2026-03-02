@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace WhisperKeyboard;
 
@@ -14,11 +15,20 @@ public partial class PermissionSetupWindow : Window
     public event EventHandler? SetupComplete;
 
     private bool _setupCompleted;
+    private DispatcherTimer? _pollTimer;
 
     public PermissionSetupWindow()
     {
         InitializeComponent();
         RefreshPermissionStatus();
+        StartPolling();
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _pollTimer.Tick += (s, e) => RefreshPermissionStatus();
+        _pollTimer.Start();
     }
 
     private void RefreshPermissionStatus()
@@ -48,11 +58,12 @@ public partial class PermissionSetupWindow : Window
             ContinueButton.Foreground = new SolidColorBrush(Colors.White);
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] All macOS permissions granted");
+            _pollTimer?.Stop();
 
             _ = Task.Run(async () =>
             {
                 await Task.Delay(1500);
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     if (!_setupCompleted)
                     {
@@ -88,6 +99,7 @@ public partial class PermissionSetupWindow : Window
     private void OnContinueClick(object? sender, RoutedEventArgs e)
     {
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] User chose to continue without full permissions");
+        _pollTimer?.Stop();
         if (!_setupCompleted)
         {
             _setupCompleted = true;
