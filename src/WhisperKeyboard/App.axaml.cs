@@ -35,10 +35,14 @@ public partial class App : Application
                 Focusable = false,
                 CanResize = false,
             };
-            // Position off-screen
+            // Position off-screen and hide from Mission Control
             _hiddenWindow.Opened += (s, e) =>
             {
                 _hiddenWindow.Position = new PixelPoint(-10000, -10000);
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                {
+                    MacOSHelper.HideWindowFromMissionControl(_hiddenWindow);
+                }
             };
             desktop.MainWindow = _hiddenWindow;
 
@@ -136,6 +140,35 @@ internal static partial class MacOSHelper
 
     [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
     private static partial void objc_msgSend_long(IntPtr receiver, IntPtr selector, long arg);
+
+    [LibraryImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
+    private static partial void objc_msgSend_void_IntPtr(IntPtr receiver, IntPtr selector, IntPtr arg);
+
+    // NSWindowCollectionBehavior flags
+    private const long NSWindowCollectionBehaviorTransient = 1 << 3;     // not managed by Mission Control
+    private const long NSWindowCollectionBehaviorIgnoresCycle = 1 << 6;  // not in Cmd+Tab cycling
+
+    public static void HideWindowFromMissionControl(Window window)
+    {
+        try
+        {
+            var nsWindow = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (nsWindow == IntPtr.Zero)
+            {
+                Console.WriteLine("Could not get NSWindow handle for hidden window");
+                return;
+            }
+
+            var collectionBehavior = (IntPtr)(NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle);
+            objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setCollectionBehavior:"), collectionBehavior);
+
+            Console.WriteLine("Hidden window excluded from Mission Control");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to hide window from Mission Control: {ex.Message}");
+        }
+    }
 
     public static void HideFromDock()
     {
