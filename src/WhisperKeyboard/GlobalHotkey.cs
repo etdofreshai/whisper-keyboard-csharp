@@ -998,9 +998,6 @@ public class PushToTalkHookMacOS : IPushToTalkHook
     private static extern void CGEventTapEnable(IntPtr tap, bool enable);
 
     [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-    private static extern long CGEventGetIntegerValueField(IntPtr eventRef, int field);
-
-    [DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
     private static extern ulong CGEventGetFlags(IntPtr eventRef);
 
     [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
@@ -1027,6 +1024,9 @@ public class PushToTalkHookMacOS : IPushToTalkHook
     private static extern void CFRunLoopRun();
 
     [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern int CFRunLoopRunInMode(IntPtr mode, double seconds, bool returnAfterSourceHandled);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
     private static extern void CFRunLoopStop(IntPtr rl);
 
     [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
@@ -1043,16 +1043,10 @@ public class PushToTalkHookMacOS : IPushToTalkHook
     // CGEvent types
     private const int kCGEventFlagsChanged = 12;
 
-    // kCGKeyboardEventKeycode field index
-    private const int kCGKeyboardEventKeycode = 9;
-
-    // macOS virtual key codes for right-side modifiers
-    private const long kVK_RightShift = 0x3C;   // 60
-    private const long kVK_RightControl = 0x3E;  // 62
-
-    // CGEvent modifier flags
-    private const ulong kCGEventFlagMaskShift = 0x00020000;
-    private const ulong kCGEventFlagMaskControl = 0x00040000;
+    // Device-dependent modifier flags (IOKit NX_DEVICE* masks)
+    // These distinguish left vs right modifier keys directly from CGEventGetFlags.
+    private const ulong NX_DEVICERSHIFTKEYMASK = 0x00000004;
+    private const ulong NX_DEVICERALTKEYMASK   = 0x00000040;
 
     // CFString encoding
     private const int kCFStringEncodingUTF8 = 0x08000100;
@@ -1068,9 +1062,7 @@ public class PushToTalkHookMacOS : IPushToTalkHook
     private bool _disposed;
     private readonly ManualResetEventSlim _hookReady = new(false);
 
-    // Key state tracking
-    private bool _rCtrlDown;
-    private bool _rShiftDown;
+    // Activation state
     private bool _isActive;
 
     public event Action? Started;
@@ -1150,13 +1142,20 @@ public class PushToTalkHookMacOS : IPushToTalkHook
             CGEventTapEnable(_eventTap, true);
             CFRelease(modeStr);
 
-            Console.WriteLine("Push-to-Talk event tap installed (macOS, Right Ctrl + Right Shift)");
+            Console.WriteLine("Push-to-Talk event tap installed (macOS, Right Option + Right Shift)");
             _hookReady.Set();
 
+            var modeHandle = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
             while (!_stopRequested)
             {
-                CFRunLoopRun();
+                // Run with a timeout so we can periodically re-enable the tap
+                // if macOS disabled it due to timeout
+                CFRunLoopRunInMode(modeHandle, 2.0, false);
+
+                if (_eventTap != IntPtr.Zero)
+                    CGEventTapEnable(_eventTap, true);
             }
+            CFRelease(modeHandle);
         }
         catch (Exception ex)
         {
@@ -1178,22 +1177,13 @@ public class PushToTalkHookMacOS : IPushToTalkHook
             return eventRef;
         }
 
-        // Get which key triggered this flags-changed event
-        long keyCode = CGEventGetIntegerValueField(eventRef, kCGKeyboardEventKeycode);
+        // Use device-dependent flag masks (NX_DEVICE*) to directly read
+        // right-side modifier state from flags. This is more reliable than
+        // tracking state via keyCode, which macOS doesn't always report
+        // correctly for modifier key releases.
         ulong flags = CGEventGetFlags(eventRef);
-
-        // Track right-side modifier keys only.
-        // keyCode tells us WHICH key changed, flags tell us current state.
-        if (keyCode == kVK_RightControl)
-        {
-            _rCtrlDown = (flags & kCGEventFlagMaskControl) != 0;
-        }
-        else if (keyCode == kVK_RightShift)
-        {
-            _rShiftDown = (flags & kCGEventFlagMaskShift) != 0;
-        }
-
-        bool bothDown = _rCtrlDown && _rShiftDown;
+        bool bothDown = (flags & NX_DEVICERALTKEYMASK) != 0
+                     && (flags & NX_DEVICERSHIFTKEYMASK) != 0;
 
         if (bothDown && !_isActive)
         {

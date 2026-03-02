@@ -233,7 +233,31 @@ public partial class RecordingIndicator : Window
             }
         }
 
-        // Fallback for non-Windows or if handle not available
+        // macOS: use orderFront: + refocus previous app to avoid stealing focus
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            var nsWindow = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (nsWindow != IntPtr.Zero)
+            {
+                // Remember the currently active app before we show our window
+                var workspace = objc_msgSend_IntPtr(objc_getClass("NSWorkspace"), sel_registerName("sharedWorkspace"));
+                var frontApp = objc_msgSend_IntPtr(workspace, sel_registerName("frontmostApplication"));
+
+                // Show our window without activating the app
+                objc_msgSend_void_IntPtr(nsWindow, sel_registerName("orderFront:"), IntPtr.Zero);
+                IsVisible = true;
+
+                // Re-activate the previous app so it keeps keyboard focus
+                if (frontApp != IntPtr.Zero)
+                {
+                    // [frontApp activateWithOptions: NSApplicationActivateIgnoringOtherApps]
+                    objc_msgSend_void_IntPtr(frontApp, sel_registerName("activateWithOptions:"), (IntPtr)2);
+                }
+                return;
+            }
+        }
+
+        // Fallback
         Show();
     }
 
@@ -268,11 +292,10 @@ public partial class RecordingIndicator : Window
             // NSFloatingWindowLevel = 5
             objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setLevel:"), (IntPtr)5);
 
-            // Exclude from Mission Control / Expose so it doesn't cause other windows
-            // to shrink to match this small toolbar window.
+            // NSWindowCollectionBehaviorCanJoinAllSpaces (1 << 0) = appear on all virtual desktops
             // NSWindowCollectionBehaviorTransient (1 << 3) = not in Spaces/Mission Control
             // NSWindowCollectionBehaviorIgnoresCycle (1 << 6) = not in Cmd+Tab / window cycling
-            var collectionBehavior = (IntPtr)(NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle);
+            var collectionBehavior = (IntPtr)(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle);
             objc_msgSend_void_IntPtr(nsWindow, sel_registerName("setCollectionBehavior:"), collectionBehavior);
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] RecordingIndicator: Window set to non-activating (macOS)");
@@ -284,11 +307,15 @@ public partial class RecordingIndicator : Window
     }
 
     private const long NSWindowStyleMaskNonactivatingPanel = 1 << 7;  // 128
+    private const long NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0; // 1 - appear on all virtual desktops
     private const long NSWindowCollectionBehaviorTransient = 1 << 3;  // 8 - not managed by Mission Control
     private const long NSWindowCollectionBehaviorIgnoresCycle = 1 << 6; // 64 - not in Cmd+Tab cycling
 
     [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "sel_registerName")]
     private static extern IntPtr sel_registerName(string name);
+
+    [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_getClass")]
+    private static extern IntPtr objc_getClass(string name);
 
     [DllImport("/usr/lib/libobjc.dylib", EntryPoint = "objc_msgSend")]
     private static extern IntPtr objc_msgSend_IntPtr(IntPtr receiver, IntPtr selector);
@@ -857,7 +884,7 @@ public partial class RecordingIndicator : Window
         _updateTimer.Stop();
         _recordingTimer.Stop();
 
-        if (_hasBeenShown && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (_hasBeenShown && (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX)))
         {
             // Move off-screen instead of hiding to avoid focus-stealing on re-show
             _savedPosition = Position;

@@ -107,8 +107,8 @@ public class ClipboardTextTyper : ITextTyper
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            // Use AppleScript to simulate Cmd+V on macOS
-            await RunAppleScriptAsync("tell application \"System Events\" to keystroke \"v\" using command down");
+            MacOSInputSender.SendPaste();
+            await Task.CompletedTask;
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -126,7 +126,8 @@ public class ClipboardTextTyper : ITextTyper
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            await RunAppleScriptAsync("tell application \"System Events\" to keystroke return");
+            MacOSInputSender.SendEnter();
+            await Task.CompletedTask;
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -143,73 +144,13 @@ public class ClipboardTextTyper : ITextTyper
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            // Escape special characters for AppleScript
-            var escapedText = text
-                .Replace("\\", "\\\\")
-                .Replace("\"", "\\\"");
-            await RunAppleScriptAsync($"tell application \"System Events\" to keystroke \"{escapedText}\"");
+            MacOSInputSender.SendText(text);
+            await Task.CompletedTask;
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             // xdotool can type text directly
             await RunProcessAsync("xdotool", $"type -- \"{text}\"");
-        }
-    }
-
-    private static async Task RunAppleScriptAsync(string script)
-    {
-        try
-        {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Running AppleScript: {script}");
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "osascript",
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(psi);
-            if (process != null)
-            {
-                // Write script to stdin instead of passing via arguments
-                await process.StandardInput.WriteLineAsync(script);
-                process.StandardInput.Close();
-
-                // Add timeout to prevent hanging indefinitely
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                try
-                {
-                    await process.WaitForExitAsync(cts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript TIMEOUT - killing process. This may indicate accessibility permission issues.");
-                    process.Kill();
-                    return;
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    var error = await process.StandardError.ReadToEndAsync();
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript error (exit code {process.ExitCode}): {error}");
-                }
-                else
-                {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript completed successfully");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Failed to start osascript process");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] AppleScript exception: {ex.Message}");
         }
     }
 
@@ -242,9 +183,7 @@ public class ClipboardTextTyper : ITextTyper
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             for (int i = 0; i < count; i++)
-            {
-                _ = RunAppleScriptAsync("tell application \"System Events\" to key code 51");
-            }
+                MacOSInputSender.SendBackspace();
         }
     }
 
