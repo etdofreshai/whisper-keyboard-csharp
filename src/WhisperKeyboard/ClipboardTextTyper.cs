@@ -69,8 +69,8 @@ public class ClipboardTextTyper : ITextTyper
                     await _clipboard.SetTextAsync(text);
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Text copied to clipboard: \"{text}\"");
 
-                    // Small delay to ensure clipboard is set
-                    await Task.Delay(50);
+                    // Delay to ensure clipboard/pasteboard is fully updated
+                    await Task.Delay(200);
 
                     // Simulate Cmd+V (paste) on macOS
                     await SimulatePasteAsync();

@@ -163,8 +163,7 @@ public static class MacOSInputSender
         }
 
         CGEventPost(kCGSessionEventTap, keyDown);
-        // Small delay between keydown and keyup for reliability
-        Thread.Sleep(10);
+        Thread.Sleep(50);
         CGEventPost(kCGSessionEventTap, keyUp);
 
         CFRelease(keyDown);
