@@ -80,6 +80,12 @@
                     Height="40"
                     Margin="5"
                     IsEnabled="False"/>
+            <Button x:Name="TranscribeFileButton"
+                    Content="Transcribe File"
+                    Click="OnTranscribeFileClick"
+                    Width="120"
+                    Height="40"
+                    Margin="5"/>
             <Button x:Name="SettingsButton"
                     Content="Settings"
                     Click="OnSettingsClick"

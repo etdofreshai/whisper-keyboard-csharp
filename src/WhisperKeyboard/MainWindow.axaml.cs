@@ -72,6 +72,12 @@ public partial class MainWindow : Window
         UpdateUI();
     }
 
+    private void OnTranscribeFileClick(object? sender, RoutedEventArgs e)
+    {
+        var window = new FileTranscriptionWindow(_transcriber ?? new SpeechTranscriber(_config));
+        window.Show();
+    }
+
     private void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
         var settingsWindow = new SettingsWindow(_config);

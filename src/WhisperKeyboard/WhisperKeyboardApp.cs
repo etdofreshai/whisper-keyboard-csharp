@@ -184,6 +184,10 @@ public class WhisperKeyboardApp : IDisposable
 
         menu.Items.Add(new NativeMenuItemSeparator());
 
+        var transcribeFileItem = new NativeMenuItem("Transcribe File...");
+        transcribeFileItem.Click += (s, e) => ShowFileTranscription();
+        menu.Items.Add(transcribeFileItem);
+
         var settingsItem = new NativeMenuItem("Settings...");
         settingsItem.Click += (s, e) => ShowSettings();
         menu.Items.Add(settingsItem);
@@ -871,6 +875,15 @@ public class WhisperKeyboardApp : IDisposable
         });
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk stopped");
+    }
+
+    public void ShowFileTranscription()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var window = new FileTranscriptionWindow(_transcriber);
+            window.Show();
+        });
     }
 
     public void ShowSettings(int initialTab = 0)

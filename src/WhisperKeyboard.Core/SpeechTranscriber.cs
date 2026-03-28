@@ -243,6 +243,75 @@ public class SpeechTranscriber : IDisposable
         }
     }
 
+    /// <summary>
+    /// Transcribe an audio/video file from disk. The file should already be in a Whisper-compatible format.
+    /// </summary>
+    public async Task<TranscriptionResult?> TranscribeFileAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_config.ApiKey))
+        {
+            Console.WriteLine("Error: OpenAI API key not configured");
+            return null;
+        }
+
+        try
+        {
+            var fileBytes = await File.ReadAllBytesAsync(filePath, cancellationToken);
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            var contentType = ext switch
+            {
+                ".mp3" => "audio/mpeg",
+                ".wav" => "audio/wav",
+                ".ogg" => "audio/ogg",
+                ".m4a" => "audio/mp4",
+                ".flac" => "audio/flac",
+                ".webm" => "audio/webm",
+                _ => "application/octet-stream"
+            };
+
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribing file: {filePath} ({fileBytes.Length / 1024.0 / 1024.0:F2} MB)");
+
+            using var longTimeoutClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
+
+            using var content = new MultipartFormDataContent();
+            var audioContent = new ByteArrayContent(fileBytes);
+            audioContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            content.Add(audioContent, "file", Path.GetFileName(filePath));
+            content.Add(new StringContent(_config.Model), "model");
+
+            if (!string.IsNullOrEmpty(_config.Language) && _config.Language != "auto")
+                content.Add(new StringContent(_config.Language), "language");
+
+            content.Add(new StringContent("verbose_json"), "response_format");
+            request.Content = content;
+
+            var response = await longTimeoutClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"API Error: {response.StatusCode} - {responseBody}");
+                throw new Exception($"API Error: {response.StatusCode} - {responseBody}");
+            }
+
+            var result = JsonSerializer.Deserialize<WhisperApiResponse>(responseBody, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            return result == null ? null : BuildResult(result);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex.Message.StartsWith("API Error:")) { throw; }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"File transcription error: {ex.Message}");
+            throw;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
