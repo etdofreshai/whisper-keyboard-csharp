@@ -91,6 +91,15 @@
                 <ScrollViewer Margin="10">
                     <StackPanel Spacing="15">
                         <CheckBox x:Name="PasteModeCheck" Content="Use Paste Mode (faster, uses clipboard)" IsChecked="True"/>
+
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Typing Delay (ms per character)" FontSize="12" Foreground="#888888"/>
+                            <NumericUpDown x:Name="TypingDelayMsBox" Minimum="0" Maximum="500" Value="0" Increment="1" FormatString="0"/>
+                            <TextBlock Text="0 = batch send (fastest). Increase if characters are clumped/dropped in some apps. Only applies in Typing mode." FontSize="10" Foreground="#666666"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="UseVirtualSpaceKeyCheck" Content="Use VK_SPACE for spaces (more reliable in terminals/Claude Code)"/>
+
                         <CheckBox x:Name="PunctuationCheck" Content="Auto-add punctuation at end of sentences" IsChecked="True"/>
                         <CheckBox x:Name="CapitalizeCheck" Content="Capitalize first letter of sentences" IsChecked="True"/>
                         <CheckBox x:Name="AutoEnterCheck" Content="Auto-press Enter after typing"/>

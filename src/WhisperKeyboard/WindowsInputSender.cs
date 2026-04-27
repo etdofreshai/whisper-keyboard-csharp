@@ -56,51 +56,85 @@ public static class WindowsInputSender
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
 
-    public static void SendText(string text)
+    public static void SendText(string text, int delayMs = 0, bool useVirtualSpaceKey = false)
     {
+        if (delayMs > 0)
+        {
+            // Per-character mode: send each char with a delay between.
+            var pair = new INPUT[2];
+            foreach (char c in text)
+            {
+                if (useVirtualSpaceKey && c == ' ')
+                {
+                    SendVirtualSpace();
+                }
+                else
+                {
+                    pair[0] = MakeUnicodeInput(c, false);
+                    pair[1] = MakeUnicodeInput(c, true);
+                    SendInput(2, pair, INPUT.Size);
+                }
+                Thread.Sleep(delayMs);
+            }
+            return;
+        }
+
         var inputs = new List<INPUT>();
 
         foreach (char c in text)
         {
-            // Key Down
-            inputs.Add(new INPUT
+            if (useVirtualSpaceKey && c == ' ')
             {
-                type = INPUT_KEYBOARD,
-                U = new InputUnion
+                // Flush any accumulated Unicode chars first.
+                if (inputs.Count > 0)
                 {
-                    ki = new KEYBDINPUT
-                    {
-                        wVk = 0,
-                        wScan = c,
-                        dwFlags = KEYEVENTF_UNICODE,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
-                    }
+                    SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
+                    inputs.Clear();
                 }
-            });
-
-            // Key Up
-            inputs.Add(new INPUT
+                SendVirtualSpace();
+            }
+            else
             {
-                type = INPUT_KEYBOARD,
-                U = new InputUnion
-                {
-                    ki = new KEYBDINPUT
-                    {
-                        wVk = 0,
-                        wScan = c,
-                        dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
-                    }
-                }
-            });
+                inputs.Add(MakeUnicodeInput(c, false));
+                inputs.Add(MakeUnicodeInput(c, true));
+            }
         }
 
         if (inputs.Count > 0)
         {
             SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
         }
+    }
+
+    private static void SendVirtualSpace()
+    {
+        // Send VK_SPACE down and up as TWO separate SendInput calls with a hold time.
+        // Some terminal apps (Claude Code in Windows Terminal, etc.) miss the keypress when
+        // down and up arrive in the same call or within microseconds of each other.
+        var down = new INPUT[1] { MakeKeyInput(0x20, false) };
+        var up = new INPUT[1] { MakeKeyInput(0x20, true) };
+        SendInput(1, down, INPUT.Size);
+        Thread.Sleep(15); // realistic key hold time
+        SendInput(1, up, INPUT.Size);
+    }
+
+    private static INPUT MakeUnicodeInput(char c, bool up)
+    {
+        return new INPUT
+        {
+            type = INPUT_KEYBOARD,
+            U = new InputUnion
+            {
+                ki = new KEYBDINPUT
+                {
+                    wVk = 0,
+                    wScan = c,
+                    dwFlags = KEYEVENTF_UNICODE | (up ? KEYEVENTF_KEYUP : 0),
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
+            }
+        };
     }
 
     public static void SendEnter()

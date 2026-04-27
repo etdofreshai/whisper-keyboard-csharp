@@ -78,8 +78,8 @@ public class ClipboardTextTyper : ITextTyper
                 else
                 {
                     // Typing mode: simulate individual keystrokes
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using TYPING mode (PasteMode={_config.PasteMode}, clipboard={(_clipboard != null ? "available" : "NULL")})");
-                    await SimulateTypingAsync(text);
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using TYPING mode (PasteMode={_config.PasteMode}, clipboard={(_clipboard != null ? "available" : "NULL")}, delayMs={_config.TypingDelayMs}, vkSpace={_config.UseVirtualSpaceKey})");
+                    await SimulateTypingAsync(text, _config.TypingDelayMs, _config.UseVirtualSpaceKey);
                 }
             }
 
@@ -135,11 +135,11 @@ public class ClipboardTextTyper : ITextTyper
         }
     }
 
-    private static async Task SimulateTypingAsync(string text)
+    private static async Task SimulateTypingAsync(string text, int delayMs = 0, bool useVirtualSpaceKey = false)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            WindowsInputSender.SendText(text);
+            WindowsInputSender.SendText(text, delayMs, useVirtualSpaceKey);
             await Task.CompletedTask;
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -149,8 +149,9 @@ public class ClipboardTextTyper : ITextTyper
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            // xdotool can type text directly
-            await RunProcessAsync("xdotool", $"type -- \"{text}\"");
+            // xdotool supports a per-key delay via --delay (in ms)
+            var delayArg = delayMs > 0 ? $" --delay {delayMs}" : "";
+            await RunProcessAsync("xdotool", $"type{delayArg} -- \"{text}\"");
         }
     }
 

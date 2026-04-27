@@ -246,6 +246,8 @@ public partial class SettingsWindow : Window
 
         // Typing settings
         PasteModeCheck.IsChecked = _config.PasteMode;
+        TypingDelayMsBox.Value = _config.TypingDelayMs;
+        UseVirtualSpaceKeyCheck.IsChecked = _config.UseVirtualSpaceKey;
         PunctuationCheck.IsChecked = _config.AddPunctuation;
         CapitalizeCheck.IsChecked = _config.CapitalizeSentences;
         AutoEnterCheck.IsChecked = _config.AutoEnter;
@@ -330,6 +332,8 @@ public partial class SettingsWindow : Window
 
         // Typing settings
         _config.PasteMode = PasteModeCheck.IsChecked ?? true;
+        _config.TypingDelayMs = (int)(TypingDelayMsBox.Value ?? 0);
+        _config.UseVirtualSpaceKey = UseVirtualSpaceKeyCheck.IsChecked ?? false;
         _config.AddPunctuation = PunctuationCheck.IsChecked ?? true;
         _config.CapitalizeSentences = CapitalizeCheck.IsChecked ?? true;
         _config.AutoEnter = AutoEnterCheck.IsChecked ?? false;
