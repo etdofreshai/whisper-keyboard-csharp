@@ -55,6 +55,12 @@ public partial class SettingsWindow : Window
                 && item.Tag?.ToString() == "custom");
         };
 
+        // Show space hold panel only when VK_SPACE is enabled
+        UseVirtualSpaceKeyCheck.IsCheckedChanged += (s, e) =>
+        {
+            VirtualSpaceHoldPanel.IsVisible = UseVirtualSpaceKeyCheck.IsChecked == true;
+        };
+
         LoadSettings();
 
         if (_initialTab > 0)
@@ -248,6 +254,8 @@ public partial class SettingsWindow : Window
         PasteModeCheck.IsChecked = _config.PasteMode;
         TypingDelayMsBox.Value = _config.TypingDelayMs;
         UseVirtualSpaceKeyCheck.IsChecked = _config.UseVirtualSpaceKey;
+        VirtualSpaceHoldMsBox.Value = _config.VirtualSpaceHoldMs;
+        VirtualSpaceHoldPanel.IsVisible = _config.UseVirtualSpaceKey;
         PunctuationCheck.IsChecked = _config.AddPunctuation;
         CapitalizeCheck.IsChecked = _config.CapitalizeSentences;
         AutoEnterCheck.IsChecked = _config.AutoEnter;
@@ -334,6 +342,7 @@ public partial class SettingsWindow : Window
         _config.PasteMode = PasteModeCheck.IsChecked ?? true;
         _config.TypingDelayMs = (int)(TypingDelayMsBox.Value ?? 0);
         _config.UseVirtualSpaceKey = UseVirtualSpaceKeyCheck.IsChecked ?? false;
+        _config.VirtualSpaceHoldMs = (int)(VirtualSpaceHoldMsBox.Value ?? 15);
         _config.AddPunctuation = PunctuationCheck.IsChecked ?? true;
         _config.CapitalizeSentences = CapitalizeCheck.IsChecked ?? true;
         _config.AutoEnter = AutoEnterCheck.IsChecked ?? false;

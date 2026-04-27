@@ -41,6 +41,7 @@ public class Config
     public double TypingSpeed { get; set; } = 0.001;
     public int TypingDelayMs { get; set; } = 0; // Delay between characters in typing mode (0 = no delay, batch send)
     public bool UseVirtualSpaceKey { get; set; } = false; // Send space via VK_SPACE keystroke instead of Unicode (more reliable in terminals)
+    public int VirtualSpaceHoldMs { get; set; } = 5; // Hold time between VK_SPACE down and up (only used when UseVirtualSpaceKey is on)
     public bool AddPunctuation { get; set; } = true;
     public bool CapitalizeSentences { get; set; } = true;
     public bool PasteMode { get; set; } = true; // Default to paste mode (more portable)

@@ -100,6 +100,12 @@
 
                         <CheckBox x:Name="UseVirtualSpaceKeyCheck" Content="Use VK_SPACE for spaces (more reliable in terminals/Claude Code)"/>
 
+                        <StackPanel x:Name="VirtualSpaceHoldPanel" Spacing="5" Margin="20,0,0,0" IsVisible="False">
+                            <TextBlock Text="Space key hold time (ms)" FontSize="12" Foreground="#888888"/>
+                            <NumericUpDown x:Name="VirtualSpaceHoldMsBox" Minimum="0" Maximum="200" Value="5" Increment="1" FormatString="0"/>
+                            <TextBlock Text="Time between key down and key up for spaces. Default 5ms. Lower = faster but may drop spaces; higher = more reliable." FontSize="10" Foreground="#666666"/>
+                        </StackPanel>
+
                         <CheckBox x:Name="PunctuationCheck" Content="Auto-add punctuation at end of sentences" IsChecked="True"/>
                         <CheckBox x:Name="CapitalizeCheck" Content="Capitalize first letter of sentences" IsChecked="True"/>
                         <CheckBox x:Name="AutoEnterCheck" Content="Auto-press Enter after typing"/>

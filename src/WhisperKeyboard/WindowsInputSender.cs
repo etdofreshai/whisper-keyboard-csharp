@@ -56,7 +56,7 @@ public static class WindowsInputSender
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
 
-    public static void SendText(string text, int delayMs = 0, bool useVirtualSpaceKey = false)
+    public static void SendText(string text, int delayMs = 0, bool useVirtualSpaceKey = false, int virtualSpaceHoldMs = 5)
     {
         if (delayMs > 0)
         {
@@ -66,7 +66,7 @@ public static class WindowsInputSender
             {
                 if (useVirtualSpaceKey && c == ' ')
                 {
-                    SendVirtualSpace();
+                    SendVirtualSpace(virtualSpaceHoldMs);
                 }
                 else
                 {
@@ -91,7 +91,7 @@ public static class WindowsInputSender
                     SendInput((uint)inputs.Count, inputs.ToArray(), INPUT.Size);
                     inputs.Clear();
                 }
-                SendVirtualSpace();
+                SendVirtualSpace(virtualSpaceHoldMs);
             }
             else
             {
@@ -106,7 +106,7 @@ public static class WindowsInputSender
         }
     }
 
-    private static void SendVirtualSpace()
+    private static void SendVirtualSpace(int holdMs)
     {
         // Send VK_SPACE down and up as TWO separate SendInput calls with a hold time.
         // Some terminal apps (Claude Code in Windows Terminal, etc.) miss the keypress when
@@ -114,7 +114,7 @@ public static class WindowsInputSender
         var down = new INPUT[1] { MakeKeyInput(0x20, false) };
         var up = new INPUT[1] { MakeKeyInput(0x20, true) };
         SendInput(1, down, INPUT.Size);
-        Thread.Sleep(15); // realistic key hold time
+        if (holdMs > 0) Thread.Sleep(holdMs);
         SendInput(1, up, INPUT.Size);
     }
 

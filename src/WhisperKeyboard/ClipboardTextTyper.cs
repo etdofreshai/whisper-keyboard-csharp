@@ -78,8 +78,8 @@ public class ClipboardTextTyper : ITextTyper
                 else
                 {
                     // Typing mode: simulate individual keystrokes
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using TYPING mode (PasteMode={_config.PasteMode}, clipboard={(_clipboard != null ? "available" : "NULL")}, delayMs={_config.TypingDelayMs}, vkSpace={_config.UseVirtualSpaceKey})");
-                    await SimulateTypingAsync(text, _config.TypingDelayMs, _config.UseVirtualSpaceKey);
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Using TYPING mode (PasteMode={_config.PasteMode}, clipboard={(_clipboard != null ? "available" : "NULL")}, delayMs={_config.TypingDelayMs}, vkSpace={_config.UseVirtualSpaceKey}, vkSpaceHoldMs={_config.VirtualSpaceHoldMs})");
+                    await SimulateTypingAsync(text, _config.TypingDelayMs, _config.UseVirtualSpaceKey, _config.VirtualSpaceHoldMs);
                 }
             }
 
@@ -135,11 +135,11 @@ public class ClipboardTextTyper : ITextTyper
         }
     }
 
-    private static async Task SimulateTypingAsync(string text, int delayMs = 0, bool useVirtualSpaceKey = false)
+    private static async Task SimulateTypingAsync(string text, int delayMs = 0, bool useVirtualSpaceKey = false, int virtualSpaceHoldMs = 5)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            WindowsInputSender.SendText(text, delayMs, useVirtualSpaceKey);
+            WindowsInputSender.SendText(text, delayMs, useVirtualSpaceKey, virtualSpaceHoldMs);
             await Task.CompletedTask;
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
