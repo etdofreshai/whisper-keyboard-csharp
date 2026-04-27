@@ -49,9 +49,13 @@
                 <ScrollViewer Margin="10">
                     <StackPanel Spacing="15">
                         <StackPanel Spacing="5">
-                            <TextBlock Text="API Base URL" FontSize="12" Foreground="#888888"/>
-                            <TextBox x:Name="ApiBaseUrlBox" Watermark="https://stt.etdofresh.com"/>
-                            <TextBlock Text="Default: https://stt.etdofresh.com (use https://api.openai.com for OpenAI directly)" FontSize="10" Foreground="#666666"/>
+                            <TextBlock Text="API Provider" FontSize="12" Foreground="#888888"/>
+                            <ComboBox x:Name="ApiProviderBox" SelectedIndex="0">
+                                <ComboBoxItem Content="stt.etdofresh.com" Tag="https://stt.etdofresh.com"/>
+                                <ComboBoxItem Content="OpenAI" Tag="https://api.openai.com"/>
+                                <ComboBoxItem Content="Custom..." Tag="custom"/>
+                            </ComboBox>
+                            <TextBox x:Name="ApiBaseUrlBox" Watermark="https://your-custom-endpoint.com" IsVisible="False"/>
                         </StackPanel>
 
                         <StackPanel Spacing="5">

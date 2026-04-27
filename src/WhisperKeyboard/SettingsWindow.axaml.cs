@@ -48,6 +48,13 @@ public partial class SettingsWindow : Window
             ApiKeyBox.PasswordChar = ShowApiKeyCheck.IsChecked == true ? '\0' : '*';
         };
 
+        // Show custom URL textbox only when "Custom..." is selected
+        ApiProviderBox.SelectionChanged += (s, e) =>
+        {
+            ApiBaseUrlBox.IsVisible = (ApiProviderBox.SelectedItem is ComboBoxItem item
+                && item.Tag?.ToString() == "custom");
+        };
+
         LoadSettings();
 
         if (_initialTab > 0)
@@ -157,8 +164,33 @@ public partial class SettingsWindow : Window
             ApiKeyBox.Text = _config.ApiKey;
         }
 
-        // API Base URL
-        ApiBaseUrlBox.Text = _config.ApiBaseUrl;
+        // API Base URL — match preset, otherwise show as Custom
+        var savedUrl = (_config.ApiBaseUrl ?? "").TrimEnd('/');
+        int matchedIndex = -1;
+        for (int i = 0; i < ApiProviderBox.Items.Count; i++)
+        {
+            if (ApiProviderBox.Items[i] is ComboBoxItem item)
+            {
+                var tag = item.Tag?.ToString() ?? "";
+                if (tag != "custom" && tag.TrimEnd('/') == savedUrl)
+                {
+                    matchedIndex = i;
+                    break;
+                }
+            }
+        }
+        if (matchedIndex >= 0)
+        {
+            ApiProviderBox.SelectedIndex = matchedIndex;
+            ApiBaseUrlBox.Text = "";
+            ApiBaseUrlBox.IsVisible = false;
+        }
+        else
+        {
+            ApiProviderBox.SelectedIndex = ApiProviderBox.Items.Count - 1; // Custom...
+            ApiBaseUrlBox.Text = _config.ApiBaseUrl;
+            ApiBaseUrlBox.IsVisible = true;
+        }
 
         // Language
         for (int i = 0; i < LanguageBox.Items.Count; i++)
@@ -261,10 +293,21 @@ public partial class SettingsWindow : Window
             _config.ApiKey = ApiKeyBox.Text;
         }
 
-        // API Base URL
-        _config.ApiBaseUrl = string.IsNullOrWhiteSpace(ApiBaseUrlBox.Text)
-            ? "https://stt.etdofresh.com"
-            : ApiBaseUrlBox.Text.Trim();
+        // API Base URL — preset tag or custom textbox
+        if (ApiProviderBox.SelectedItem is ComboBoxItem providerItem)
+        {
+            var tag = providerItem.Tag?.ToString() ?? "";
+            if (tag == "custom")
+            {
+                _config.ApiBaseUrl = string.IsNullOrWhiteSpace(ApiBaseUrlBox.Text)
+                    ? "https://stt.etdofresh.com"
+                    : ApiBaseUrlBox.Text.Trim();
+            }
+            else
+            {
+                _config.ApiBaseUrl = tag;
+            }
+        }
 
         // Language
         if (LanguageBox.SelectedItem is ComboBoxItem langItem)
