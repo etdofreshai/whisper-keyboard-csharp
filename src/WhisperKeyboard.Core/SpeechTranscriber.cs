@@ -21,6 +21,17 @@ public class SpeechTranscriber : IDisposable
         };
     }
 
+    private string TranscriptionsUrl
+    {
+        get
+        {
+            var baseUrl = string.IsNullOrWhiteSpace(_config.ApiBaseUrl)
+                ? "https://api.openai.com"
+                : _config.ApiBaseUrl.TrimEnd('/');
+            return $"{baseUrl}/v1/audio/transcriptions";
+        }
+    }
+
     public async Task<TranscriptionResult?> TranscribeAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_config.ApiKey))
@@ -34,7 +45,7 @@ public class SpeechTranscriber : IDisposable
             // Convert raw PCM to WAV format
             byte[] wavData = ConvertToWav(audioData, _config.SampleRate, _config.Channels);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
+            using var request = new HttpRequestMessage(HttpMethod.Post, TranscriptionsUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
 
             using var content = new MultipartFormDataContent();
@@ -189,7 +200,7 @@ public class SpeechTranscriber : IDisposable
             // Use a longer timeout for long recordings (5 minutes)
             using var longTimeoutClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
+            using var request = new HttpRequestMessage(HttpMethod.Post, TranscriptionsUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
 
             using var content = new MultipartFormDataContent();
@@ -272,7 +283,7 @@ public class SpeechTranscriber : IDisposable
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribing file: {filePath} ({fileBytes.Length / 1024.0 / 1024.0:F2} MB)");
 
             using var longTimeoutClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
+            using var request = new HttpRequestMessage(HttpMethod.Post, TranscriptionsUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
 
             using var content = new MultipartFormDataContent();

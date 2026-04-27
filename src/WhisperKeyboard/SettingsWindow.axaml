@@ -49,6 +49,12 @@
                 <ScrollViewer Margin="10">
                     <StackPanel Spacing="15">
                         <StackPanel Spacing="5">
+                            <TextBlock Text="API Base URL" FontSize="12" Foreground="#888888"/>
+                            <TextBox x:Name="ApiBaseUrlBox" Watermark="https://stt.etdofresh.com"/>
+                            <TextBlock Text="Default: https://stt.etdofresh.com (use https://api.openai.com for OpenAI directly)" FontSize="10" Foreground="#666666"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="5">
                             <TextBlock Text="API Key" FontSize="12" Foreground="#888888"/>
                             <TextBox x:Name="ApiKeyBox" PasswordChar="*" Watermark="sk-..."/>
                             <TextBlock Text="Or set OPENAI_API_KEY environment variable" FontSize="10" Foreground="#666666"/>

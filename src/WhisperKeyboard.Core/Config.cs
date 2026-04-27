@@ -33,6 +33,7 @@ public class Config
 
     // OpenAI Settings
     public string ApiKey { get; set; } = "";
+    public string ApiBaseUrl { get; set; } = "https://stt.etdofresh.com";
     public string Model { get; set; } = "whisper-1";
     public string Language { get; set; } = "en";
 

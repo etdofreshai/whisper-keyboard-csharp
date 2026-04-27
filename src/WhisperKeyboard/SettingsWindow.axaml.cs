@@ -157,6 +157,9 @@ public partial class SettingsWindow : Window
             ApiKeyBox.Text = _config.ApiKey;
         }
 
+        // API Base URL
+        ApiBaseUrlBox.Text = _config.ApiBaseUrl;
+
         // Language
         for (int i = 0; i < LanguageBox.Items.Count; i++)
         {
@@ -257,6 +260,11 @@ public partial class SettingsWindow : Window
         {
             _config.ApiKey = ApiKeyBox.Text;
         }
+
+        // API Base URL
+        _config.ApiBaseUrl = string.IsNullOrWhiteSpace(ApiBaseUrlBox.Text)
+            ? "https://stt.etdofresh.com"
+            : ApiBaseUrlBox.Text.Trim();
 
         // Language
         if (LanguageBox.SelectedItem is ComboBoxItem langItem)
