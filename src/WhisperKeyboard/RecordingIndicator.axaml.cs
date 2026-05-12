@@ -52,6 +52,8 @@ public partial class RecordingIndicator : Window
     public event Action? OnHistoryClicked;
     public event Action? OnCalibrateClicked;
     public event Action? OnPinClicked;
+    public event Action? OnRetryClicked;
+    public event Action? OnDiscardClicked;
 
     public RecordingIndicator()
     {
@@ -74,6 +76,8 @@ public partial class RecordingIndicator : Window
         HistoryButton.Click += (s, e) => OnHistoryClicked?.Invoke();
         CalibrateButton.Click += (s, e) => OnCalibrateClicked?.Invoke();
         PinButton.Click += (s, e) => OnPinClicked?.Invoke();
+        RetryButton.Click += (s, e) => OnRetryClicked?.Invoke();
+        DiscardButton.Click += (s, e) => OnDiscardClicked?.Invoke();
 
         // Enable dragging
         PointerPressed += OnPointerPressed;
@@ -781,12 +785,42 @@ public partial class RecordingIndicator : Window
     {
         Width = NormalWidth;
         PinButton.IsVisible = false;
+        RetryButton.IsVisible = false;
+        DiscardButton.IsVisible = false;
         LongRecordButton.IsVisible = _longRecordButtonConfigured;
         PauseButton.IsVisible = true;
         StopButton.IsVisible = true;
         HistoryButton.IsVisible = true;
         CalibrateButton.IsVisible = true;
         SettingsButton.IsVisible = true;
+    }
+
+    public void ShowTranscriptionFailed(string? errorMessage = null)
+    {
+        _isRecording = false;
+        StatusText.Text = string.IsNullOrWhiteSpace(errorMessage)
+            ? "Transcription failed"
+            : $"Failed: {errorMessage}";
+        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 100, 100));
+        TimerText.IsVisible = false;
+        Opacity = ActiveOpacity;
+        _targetOpacity = ActiveOpacity;
+
+        _recordingTimer.Stop();
+        _updateTimer.Start();
+
+        Width = NormalWidth;
+        LongRecordButton.IsVisible = false;
+        PauseButton.IsVisible = false;
+        StopButton.IsVisible = false;
+        HistoryButton.IsVisible = false;
+        CalibrateButton.IsVisible = false;
+        SettingsButton.IsVisible = false;
+        PinButton.IsVisible = false;
+        RetryButton.IsVisible = true;
+        DiscardButton.IsVisible = true;
+
+        if (!IsVisible) ShowWithoutActivation();
     }
 
     public void ShowLongRecordingStopped()

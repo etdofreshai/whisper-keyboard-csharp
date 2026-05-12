@@ -36,6 +36,11 @@ public class WhisperKeyboardApp : IDisposable
     private CancellationTokenSource? _transcriptionCts;
     private CancellationTokenSource? _longRecordingCts;
 
+    // Stashed audio from a failed transcription, awaiting user Retry/Discard.
+    private byte[]? _lastFailedAudio;
+    private bool _lastFailedWasLong;
+    private bool _lastFailedWasPtt;
+
     // Tray icon (defined in App.axaml)
     private NativeMenuItem? _statusMenuItem;
     private NativeMenuItem? _toggleMenuItem;
@@ -83,6 +88,8 @@ public class WhisperKeyboardApp : IDisposable
         _recordingIndicator.OnHistoryClicked += () => ShowSettings(initialTab: 5);
         _recordingIndicator.OnCalibrateClicked += ShowCalibration;
         _recordingIndicator.OnPinClicked += PinFromPushToTalk;
+        _recordingIndicator.OnRetryClicked += RetryFailedTranscription;
+        _recordingIndicator.OnDiscardClicked += DiscardFailedTranscription;
 
         // Set long record button visibility based on config
         _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
@@ -427,6 +434,11 @@ public class WhisperKeyboardApp : IDisposable
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping - already transcribing");
             return;
         }
+        if (_lastFailedAudio != null)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping - pending failed transcription awaiting user action");
+            return;
+        }
         if (DateTime.Now < _ignoreUntil)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Skipping - in ignore period");
@@ -435,7 +447,18 @@ public class WhisperKeyboardApp : IDisposable
 
         var audioData = e.AudioData;
         var totalDuration = e.TotalDuration;
+        var isFromLongRecording = _wasLongRecording;
+        var isFromPushToTalk = _wasPushToTalking;
+        _wasLongRecording = false;
+        _wasPushToTalking = false;
 
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s");
+
+        await RunTranscriptionAsync(audioData, isFromLongRecording, isFromPushToTalk);
+    }
+
+    private async Task RunTranscriptionAsync(byte[] audioData, bool isFromLongRecording, bool isFromPushToTalk)
+    {
         _isTranscribing = true;
 
         // Pause mic capture during transcription so we don't pick up stray audio
@@ -452,14 +475,9 @@ public class WhisperKeyboardApp : IDisposable
             _recordingIndicator.ShowTranscribing();
         });
 
-        // Check if this audio came from a long recording or PTT
-        var isFromLongRecording = _wasLongRecording;
-        var isFromPushToTalk = _wasPushToTalking;
-        _wasLongRecording = false;
-        _wasPushToTalking = false;
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribing {audioData.Length} bytes, long recording: {isFromLongRecording}, PTT: {isFromPushToTalk}, sending to API...");
 
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio ready - {audioData.Length} bytes, total duration: {totalDuration.TotalSeconds:F2}s, long recording: {isFromLongRecording}, PTT: {isFromPushToTalk}, sending to API...");
-
+        bool transcriptionFailed = false;
         try
         {
             // Use appropriate transcription method based on recording type
@@ -512,40 +530,102 @@ public class WhisperKeyboardApp : IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription error: {ex.Message}");
+            transcriptionFailed = true;
+            _lastFailedAudio = audioData;
+            _lastFailedWasLong = isFromLongRecording;
+            _lastFailedWasPtt = isFromPushToTalk;
+
+            var errMsg = ex.Message;
+            Dispatcher.UIThread.Post(() =>
+            {
+                UpdateStatus("Transcription failed");
+                _recordingIndicator.ShowTranscriptionFailed(errMsg);
+            });
         }
         finally
         {
             _isTranscribing = false;
 
-            if (isFromPushToTalk)
+            // If failed, keep mic paused and UI in failed state — user will Retry or Discard.
+            if (!transcriptionFailed)
             {
-                // PTT: stop listening and hide the toolbar after a brief delay
-                await Task.Delay(500);
-                Dispatcher.UIThread.Post(() =>
+                if (isFromPushToTalk)
                 {
-                    StopListening();
-                });
-            }
-            else if (_isListening && !_isPaused)
-            {
-                // Resume mic capture and return to listening/standby mode
-                _audioCapture.Resume();
+                    // PTT: stop listening and hide the toolbar after a brief delay
+                    await Task.Delay(500);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        StopListening();
+                    });
+                }
+                else if (_isListening && !_isPaused)
+                {
+                    // Resume mic capture and return to listening/standby mode
+                    _audioCapture.Resume();
 
-                await Task.Delay(500);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_isStandby)
+                    await Task.Delay(500);
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        UpdateStatus("Standby");
-                        _recordingIndicator.ShowStandby();
-                    }
-                    else
-                    {
-                        UpdateStatus("Listening...");
-                        _recordingIndicator.ShowListening();
-                    }
-                });
+                        if (_isStandby)
+                        {
+                            UpdateStatus("Standby");
+                            _recordingIndicator.ShowStandby();
+                        }
+                        else
+                        {
+                            UpdateStatus("Listening...");
+                            _recordingIndicator.ShowListening();
+                        }
+                    });
+                }
             }
+        }
+    }
+
+    private void RetryFailedTranscription()
+    {
+        if (_lastFailedAudio == null || _isTranscribing) return;
+
+        var audio = _lastFailedAudio;
+        var wasLong = _lastFailedWasLong;
+        var wasPtt = _lastFailedWasPtt;
+        // Clear up-front so RunTranscriptionAsync's finally block can resume the mic on success.
+        _lastFailedAudio = null;
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Retrying failed transcription ({audio.Length} bytes)");
+        _ = RunTranscriptionAsync(audio, wasLong, wasPtt);
+    }
+
+    private void DiscardFailedTranscription()
+    {
+        if (_lastFailedAudio == null) return;
+
+        var wasPtt = _lastFailedWasPtt;
+        _lastFailedAudio = null;
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription discarded by user");
+
+        if (wasPtt)
+        {
+            Dispatcher.UIThread.Post(StopListening);
+            return;
+        }
+
+        if (_isListening && !_isPaused)
+        {
+            _audioCapture.Resume();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_isStandby)
+                {
+                    UpdateStatus("Standby");
+                    _recordingIndicator.ShowStandby();
+                }
+                else
+                {
+                    UpdateStatus("Listening...");
+                    _recordingIndicator.ShowListening();
+                }
+            });
         }
     }
 
