@@ -231,7 +231,7 @@ public class WhisperKeyboardApp : IDisposable
             _audioCapture.Start();
             _isListening = true;
             _isPaused = false;
-            _isStandby = false; // Always start in active listening mode
+            _isStandby = false;
 
             UpdateStatus("Listening...");
             _recordingIndicator.ResetToDefaultPosition();
@@ -240,6 +240,12 @@ public class WhisperKeyboardApp : IDisposable
             UpdateMenuState();
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started listening");
+
+            // Optionally begin paused — user must Resume to start VAD.
+            if (_config.StartListeningPaused)
+            {
+                PauseListening();
+            }
         }
         catch (Exception ex)
         {

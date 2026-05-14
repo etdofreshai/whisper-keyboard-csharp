@@ -217,6 +217,11 @@
                     <StackPanel Spacing="15">
                         <CheckBox x:Name="StartOnLoginCheck" Content="Start when computer starts"/>
                         <CheckBox x:Name="StartListeningOnLaunchCheck" Content="Start listening when application starts" IsChecked="True"/>
+                        <StackPanel Spacing="2" Margin="20,0,0,0">
+                            <CheckBox x:Name="StartListeningPausedCheck" Content="Start paused (press Resume to begin)"/>
+                            <TextBlock Text="When listening starts, begin paused instead of detecting speech immediately."
+                                       FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
+                        </StackPanel>
                         <CheckBox x:Name="ShowNotificationsCheck" Content="Show notifications" IsChecked="True"/>
 
                         <StackPanel Spacing="5" Margin="0,15,0,0">

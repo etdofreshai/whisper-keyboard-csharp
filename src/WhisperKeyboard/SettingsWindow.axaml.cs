@@ -275,6 +275,7 @@ public partial class SettingsWindow : Window
         // General settings
         StartOnLoginCheck.IsChecked = _config.StartOnLogin;
         StartListeningOnLaunchCheck.IsChecked = _config.StartListeningOnLaunch;
+        StartListeningPausedCheck.IsChecked = _config.StartListeningPaused;
         ShowNotificationsCheck.IsChecked = _config.ShowNotifications;
         ConfigPathLabel.Text = Config.GetConfigPath();
 
@@ -378,6 +379,7 @@ public partial class SettingsWindow : Window
             SetStartOnLogin(startOnLogin);
         }
         _config.StartListeningOnLaunch = StartListeningOnLaunchCheck.IsChecked ?? true;
+        _config.StartListeningPaused = StartListeningPausedCheck.IsChecked ?? false;
         _config.ShowNotifications = ShowNotificationsCheck.IsChecked ?? true;
 
         // Hotkey settings

@@ -78,6 +78,9 @@ public class Config
     public bool ShowNotifications { get; set; } = true;
     public bool StartOnLogin { get; set; } = false;
     public bool StartListeningOnLaunch { get; set; } = true;
+    // When listening starts (launch, tray menu, or hotkey), begin paused so the
+    // user must Resume to start VAD instead of it listening immediately.
+    public bool StartListeningPaused { get; set; } = false;
     public bool IsCalibrated { get; set; } = false;
 
     public static Config Load()
