@@ -31,6 +31,13 @@ public class Config
     public double MaxSilenceDuration { get; set; } = 1.0;
     public double MinAudioDuration { get; set; } = 0.5;
 
+    // Pre-roll / Post-roll padding (extra audio captured before/after a recording)
+    // PreRollEnabled keeps the mic running while idle so audio from just before
+    // a keypress / speech start is available. Disabling it lets the mic shut off.
+    public bool PreRollEnabled { get; set; } = true;
+    public double PreRollSeconds { get; set; } = 1.0;
+    public double PostRollSeconds { get; set; } = 0.3;
+
     // OpenAI Settings
     public string ApiKey { get; set; } = "";
     public string ApiBaseUrl { get; set; } = "https://stt.etdofresh.com";

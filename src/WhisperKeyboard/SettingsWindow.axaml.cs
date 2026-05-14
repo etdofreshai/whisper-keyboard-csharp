@@ -250,6 +250,11 @@ public partial class SettingsWindow : Window
         MinAudioDuration.Value = (decimal)_config.MinAudioDuration;
         MaxSilenceDuration.Value = (decimal)_config.MaxSilenceDuration;
 
+        // Pre-roll / post-roll settings
+        PreRollEnabledCheck.IsChecked = _config.PreRollEnabled;
+        PreRollSeconds.Value = (decimal)_config.PreRollSeconds;
+        PostRollSeconds.Value = (decimal)_config.PostRollSeconds;
+
         // Typing settings
         PasteModeCheck.IsChecked = _config.PasteMode;
         TypingDelayMsBox.Value = _config.TypingDelayMs;
@@ -337,6 +342,11 @@ public partial class SettingsWindow : Window
         // Audio duration
         _config.MinAudioDuration = (double)(MinAudioDuration.Value ?? 1);
         _config.MaxSilenceDuration = (double)(MaxSilenceDuration.Value ?? 1);
+
+        // Pre-roll / post-roll
+        _config.PreRollEnabled = PreRollEnabledCheck.IsChecked ?? true;
+        _config.PreRollSeconds = (double)(PreRollSeconds.Value ?? 1);
+        _config.PostRollSeconds = (double)(PostRollSeconds.Value ?? 1);
 
         // Typing settings
         _config.PasteMode = PasteModeCheck.IsChecked ?? true;

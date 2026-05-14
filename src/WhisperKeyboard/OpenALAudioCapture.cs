@@ -24,6 +24,7 @@ public class OpenALAudioCapture : IAudioCapture
     private TimeSpan _accumulatedSpeechDuration;
     private bool _isLongRecording;
     private DateTime _longRecordingStartTime;
+    private volatile bool _isMonitoring;
 
     public event EventHandler<AudioReadyEventArgs>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
@@ -33,6 +34,7 @@ public class OpenALAudioCapture : IAudioCapture
     public bool IsPaused => _isPaused;
     public bool IsSpeechDetected => _isSpeechDetected;
     public bool IsLongRecording => _isLongRecording;
+    public bool IsMonitoring => _isMonitoring;
 
     public OpenALAudioCapture(Config config)
     {
@@ -54,8 +56,44 @@ public class OpenALAudioCapture : IAudioCapture
 
     public void Start()
     {
+        // Already running (possibly monitor mode) — just upgrade to full capture.
+        if (_isRunning)
+        {
+            _isMonitoring = false;
+            EnsureDeviceCapturing();
+            return;
+        }
+
+        StartDevice();
+        _isMonitoring = false;
+    }
+
+    /// <summary>
+    /// Ensures the capture device is actively recording. The device can be left
+    /// paused (e.g. stopped mid-transcription), so monitor/full transitions must
+    /// resume it or no audio is captured.
+    /// </summary>
+    private void EnsureDeviceCapturing()
+    {
+        if (!_isPaused) return;
+        if (_captureDevice != IntPtr.Zero)
+        {
+            OpenALNative.CaptureStart(_captureDevice);
+        }
+        _isPaused = false;
+    }
+
+    public void StartMonitoring()
+    {
         if (_isRunning) return;
 
+        StartDevice();
+        _isMonitoring = true;
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio monitoring started (mic warm for pre-roll)");
+    }
+
+    private void StartDevice()
+    {
         try
         {
             // Get device name (null = default)
@@ -109,7 +147,31 @@ public class OpenALAudioCapture : IAudioCapture
     {
         if (!_isRunning) return;
 
+        // With pre-roll enabled, keep the mic running in monitor-only mode so the
+        // pre-roll buffer stays warm for the next push-to-talk.
+        if (_config.PreRollEnabled)
+        {
+            _isMonitoring = true;
+            _isLongRecording = false;
+            _isSpeechDetected = false;
+            lock (_bufferLock)
+            {
+                _audioBuffer.Clear();
+            }
+            // Device may be paused (stopped mid-transcription) — resume it so the
+            // pre-roll buffer actually keeps filling.
+            EnsureDeviceCapturing();
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio downgraded to monitor mode");
+            return;
+        }
+
+        StopDevice();
+    }
+
+    private void StopDevice()
+    {
         _isRunning = false;
+        _isMonitoring = false;
         _captureThread?.Join(1000);
 
         if (_captureDevice != IntPtr.Zero)
@@ -206,6 +268,13 @@ public class OpenALAudioCapture : IAudioCapture
             var chunk = new byte[bytesRecorded];
             Array.Copy(buffer, chunk, bytesRecorded);
 
+            // Monitor-only mode: just keep the rolling pre-roll buffer warm.
+            if (_isMonitoring)
+            {
+                AddToPreRoll(chunk);
+                return;
+            }
+
             // In long recording mode, always buffer audio regardless of VAD
             if (_isLongRecording)
             {
@@ -245,14 +314,10 @@ public class OpenALAudioCapture : IAudioCapture
                 _lastSpeechTime = DateTime.Now;
                 _audioBuffer.Add(chunk);
             }
-            else 
+            else
             {
                 // Silence - maintain pre-roll buffer
-                _voiceBuffer.Add(chunk);
-                while (_voiceBuffer.Count > 5)
-                {
-                    _voiceBuffer.RemoveAt(0);
-                }
+                AddToPreRoll(chunk);
 
                 if (_isSpeechDetected)
                 {
@@ -263,8 +328,10 @@ public class OpenALAudioCapture : IAudioCapture
                     if (!_isLongRecording)
                     {
                         var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+                        // Post-roll keeps recording a bit past the silence timeout.
+                        var finalizeAfter = _config.MaxSilenceDuration + Math.Max(0, _config.PostRollSeconds);
 
-                        if (silenceDuration > _config.MaxSilenceDuration)
+                        if (silenceDuration > finalizeAfter)
                         {
                             // End of speech detected
                             FinalizeAudio();
@@ -272,6 +339,33 @@ public class OpenALAudioCapture : IAudioCapture
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Maximum bytes to retain in the rolling pre-roll buffer.
+    /// When pre-roll is disabled, keeps a small floor (~250ms) so VAD word-starts
+    /// aren't clipped.
+    /// </summary>
+    private int PreRollMaxBytes()
+    {
+        double seconds = _config.PreRollEnabled ? Math.Max(0, _config.PreRollSeconds) : 0.25;
+        return Math.Max(1, (int)(seconds * _config.SampleRate * 2));
+    }
+
+    /// <summary>
+    /// Appends a chunk to the rolling pre-roll buffer, trimming the oldest chunks
+    /// to stay within the configured pre-roll duration. Caller must hold _bufferLock.
+    /// </summary>
+    private void AddToPreRoll(byte[] chunk)
+    {
+        _voiceBuffer.Add(chunk);
+        int maxBytes = PreRollMaxBytes();
+        long total = _voiceBuffer.Sum(b => b.Length);
+        while (total > maxBytes && _voiceBuffer.Count > 1)
+        {
+            total -= _voiceBuffer[0].Length;
+            _voiceBuffer.RemoveAt(0);
         }
     }
 
@@ -311,16 +405,31 @@ public class OpenALAudioCapture : IAudioCapture
         lock (_bufferLock)
         {
             _isLongRecording = true;
+            _isMonitoring = false;
             _longRecordingStartTime = DateTime.Now;
             _isSpeechDetected = true; // Treat as always "speaking"
             _speechStartTime = DateTime.Now;
             _accumulatedSpeechDuration = TimeSpan.Zero;
 
-            // Clear buffers and start fresh
             _audioBuffer.Clear();
+
+            // Prepend the rolling pre-roll buffer so audio from just before the
+            // keypress is included.
+            if (_config.PreRollEnabled && _voiceBuffer.Count > 0)
+            {
+                _audioBuffer.AddRange(_voiceBuffer);
+                long preBytes = _voiceBuffer.Sum(b => b.Length);
+                var preRoll = TimeSpan.FromSeconds((double)preBytes / (_config.SampleRate * 2));
+                _accumulatedSpeechDuration = preRoll;
+                _speechStartTime = DateTime.Now - preRoll;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED with {preRoll.TotalSeconds:F2}s pre-roll");
+            }
+            else
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
+            }
             _voiceBuffer.Clear();
 
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
             SpeechDetected?.Invoke(this, true);
         }
     }
@@ -354,7 +463,7 @@ public class OpenALAudioCapture : IAudioCapture
     {
         if (_disposed) return;
 
-        Stop();
+        StopDevice();
         _disposed = true;
     }
 }

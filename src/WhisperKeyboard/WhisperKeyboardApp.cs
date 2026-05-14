@@ -35,6 +35,7 @@ public class WhisperKeyboardApp : IDisposable
     private bool _disposed;
     private CancellationTokenSource? _transcriptionCts;
     private CancellationTokenSource? _longRecordingCts;
+    private CancellationTokenSource? _pttPostRollCts;
 
     // Stashed audio from a failed transcription, awaiting user Retry/Discard.
     private byte[]? _lastFailedAudio;
@@ -133,6 +134,10 @@ public class WhisperKeyboardApp : IDisposable
         {
             // App is idle — show brief startup notification
             _recordingIndicator.ShowStartupNotification();
+
+            // Keep the mic warm so pre-roll audio is available for push-to-talk.
+            if (_config.PreRollEnabled)
+                _audioCapture.StartMonitoring();
         }
     }
 
@@ -251,8 +256,10 @@ public class WhisperKeyboardApp : IDisposable
         _isPaused = false;
         _isStandby = false;
 
-        // Cancel any in-flight transcription
+        // Cancel any in-flight transcription and pending push-to-talk post-roll
         _transcriptionCts?.Cancel();
+        _pttPostRollCts?.Cancel();
+        _isPushToTalking = false;
 
         UpdateStatus("Stopped");
         UpdateMenuState();
@@ -884,6 +891,21 @@ public class WhisperKeyboardApp : IDisposable
         if (_isPushToTalking || _isLongRecording || _isTranscribing)
             return;
 
+        // Re-pressed during the post-roll window — cancel the pending finalize and
+        // keep the existing recording going.
+        if (_pttPostRollCts is { IsCancellationRequested: false } && _audioCapture.IsLongRecording)
+        {
+            _pttPostRollCts.Cancel();
+            _isPushToTalking = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                UpdateStatus("Push to Talk...");
+                _recordingIndicator.ShowPushToTalk();
+            });
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk resumed during post-roll");
+            return;
+        }
+
         // Auto-start audio capture if not already listening
         if (!_isListening)
         {
@@ -943,6 +965,38 @@ public class WhisperKeyboardApp : IDisposable
         if (!_isPushToTalking) return;
 
         _isPushToTalking = false;
+
+        var postRoll = TimeSpan.FromSeconds(Math.Max(0, _config.PostRollSeconds));
+        if (postRoll <= TimeSpan.Zero)
+        {
+            FinishPushToTalkRecording();
+            return;
+        }
+
+        // Keep capturing for a short post-roll window after the keys are released.
+        _pttPostRollCts?.Cancel();
+        _pttPostRollCts?.Dispose();
+        _pttPostRollCts = new CancellationTokenSource();
+        var token = _pttPostRollCts.Token;
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Push-to-Talk released — capturing {postRoll.TotalSeconds:F1}s post-roll");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(postRoll, token);
+                Dispatcher.UIThread.Post(FinishPushToTalkRecording);
+            }
+            catch (TaskCanceledException) { }
+        });
+    }
+
+    private void FinishPushToTalkRecording()
+    {
+        // May have already been finalized (or cancelled) by a re-press or Stop.
+        if (!_audioCapture.IsLongRecording) return;
+
         _wasPushToTalking = true;
         _wasLongRecording = true; // Route through long recording transcription path
         _audioCapture.StopLongRecording();
@@ -991,6 +1045,16 @@ public class WhisperKeyboardApp : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
+
+            // Apply the pre-roll mic policy while idle: keep the mic warm when
+            // enabled, release it when disabled.
+            if (!_isListening)
+            {
+                if (_config.PreRollEnabled && !_audioCapture.IsRecording)
+                    _audioCapture.StartMonitoring();
+                else if (!_config.PreRollEnabled && _audioCapture.IsMonitoring)
+                    _audioCapture.Stop(); // PreRollEnabled now false → fully stops
+            }
         });
     }
 
@@ -1015,6 +1079,8 @@ public class WhisperKeyboardApp : IDisposable
         try { _transcriptionCts?.Dispose(); } catch { }
         try { _longRecordingCts?.Cancel(); } catch { }
         try { _longRecordingCts?.Dispose(); } catch { }
+        try { _pttPostRollCts?.Cancel(); } catch { }
+        try { _pttPostRollCts?.Dispose(); } catch { }
 
         try { _audioCapture.Stop(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error stopping audio: {ex.Message}"); }
         try { _audioCapture.Dispose(); } catch (Exception ex) { Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error disposing audio: {ex.Message}"); }

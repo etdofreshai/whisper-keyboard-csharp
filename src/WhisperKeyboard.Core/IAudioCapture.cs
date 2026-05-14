@@ -76,6 +76,18 @@ public interface IAudioCapture : IDisposable
     void Start();
 
     /// <summary>
+    /// Start capture in monitor-only mode: keeps the pre-roll buffer warm and
+    /// reports volume, but does not run VAD or fire AudioReady. Used so pre-roll
+    /// audio is available even when the app is otherwise idle.
+    /// </summary>
+    void StartMonitoring();
+
+    /// <summary>
+    /// Whether the capture is running in monitor-only mode.
+    /// </summary>
+    bool IsMonitoring { get; }
+
+    /// <summary>
     /// Stop audio capture.
     /// </summary>
     void Stop();

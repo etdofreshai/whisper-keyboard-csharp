@@ -21,6 +21,7 @@ public class NAudioCapture : IAudioCapture
     private double _maxVolumeSeen;
     private bool _isLongRecording;
     private DateTime _longRecordingStartTime;
+    private volatile bool _isMonitoring;
 
     public event EventHandler<AudioReadyEventArgs>? AudioReady;
     public event EventHandler<double>? VolumeChanged;
@@ -30,6 +31,7 @@ public class NAudioCapture : IAudioCapture
     public bool IsPaused { get; private set; }
     public bool IsSpeechDetected => _isSpeechDetected;
     public bool IsLongRecording => _isLongRecording;
+    public bool IsMonitoring => _isMonitoring;
 
     public NAudioCapture(Config config)
     {
@@ -47,10 +49,8 @@ public class NAudioCapture : IAudioCapture
         return devices;
     }
 
-    public void Start()
+    private void StartDevice()
     {
-        if (_isRecording) return;
-
         _waveIn = new WaveInEvent
         {
             DeviceNumber = _config.DeviceIndex >= 0 ? _config.DeviceIndex : 0,
@@ -61,11 +61,51 @@ public class NAudioCapture : IAudioCapture
         _waveIn.DataAvailable += OnDataAvailable;
         _waveIn.RecordingStopped += OnRecordingStopped;
 
+        _waveIn.StartRecording();
+        _isRecording = true;
+        IsPaused = false;
+    }
+
+    private void StopDevice()
+    {
+        _isRecording = false;
+        _isMonitoring = false;
+        _waveIn?.StopRecording();
+    }
+
+    /// <summary>
+    /// Ensures the capture device is actively recording. The device can be left
+    /// paused (e.g. stopped mid-transcription), so monitor/full transitions must
+    /// resume it or no audio is captured.
+    /// </summary>
+    private void EnsureDeviceCapturing()
+    {
+        if (!IsPaused) return;
         try
         {
-            _waveIn.StartRecording();
-            _isRecording = true;
+            _waveIn?.StartRecording();
             IsPaused = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error resuming audio device: {ex.Message}");
+        }
+    }
+
+    public void Start()
+    {
+        // Already running (possibly in monitor mode) — just upgrade to full capture.
+        if (_isRecording)
+        {
+            _isMonitoring = false;
+            EnsureDeviceCapturing();
+            return;
+        }
+
+        try
+        {
+            StartDevice();
+            _isMonitoring = false;
         }
         catch (Exception ex)
         {
@@ -74,12 +114,45 @@ public class NAudioCapture : IAudioCapture
         }
     }
 
+    public void StartMonitoring()
+    {
+        if (_isRecording) return;
+
+        try
+        {
+            StartDevice();
+            _isMonitoring = true;
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio monitoring started (mic warm for pre-roll)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error starting audio monitoring: {ex.Message}");
+        }
+    }
+
     public void Stop()
     {
         if (!_isRecording) return;
 
-        _isRecording = false;
-        _waveIn?.StopRecording();
+        // With pre-roll enabled, keep the mic running in monitor-only mode so the
+        // pre-roll buffer stays warm for the next push-to-talk.
+        if (_config.PreRollEnabled)
+        {
+            _isMonitoring = true;
+            _isLongRecording = false;
+            _isSpeechDetected = false;
+            lock (_bufferLock)
+            {
+                _audioBuffer.Clear();
+            }
+            // Device may be paused (stopped mid-transcription) — resume it so the
+            // pre-roll buffer actually keeps filling.
+            EnsureDeviceCapturing();
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Audio downgraded to monitor mode");
+            return;
+        }
+
+        StopDevice();
     }
 
     public void Pause()
@@ -140,6 +213,13 @@ public class NAudioCapture : IAudioCapture
             var chunk = new byte[e.BytesRecorded];
             Array.Copy(e.Buffer, chunk, e.BytesRecorded);
 
+            // Monitor-only mode: just keep the rolling pre-roll buffer warm.
+            if (_isMonitoring)
+            {
+                AddToPreRoll(chunk);
+                return;
+            }
+
             // In long recording mode, always buffer audio regardless of VAD
             if (_isLongRecording)
             {
@@ -183,11 +263,7 @@ public class NAudioCapture : IAudioCapture
             else
             {
                 // Silence - maintain pre-roll buffer
-                _voiceBuffer.Add(chunk);
-                while (_voiceBuffer.Count > 5)
-                {
-                    _voiceBuffer.RemoveAt(0);
-                }
+                AddToPreRoll(chunk);
 
                 if (_isSpeechDetected)
                 {
@@ -198,16 +274,45 @@ public class NAudioCapture : IAudioCapture
                     if (!_isLongRecording)
                     {
                         var silenceDuration = (DateTime.Now - _lastSpeechTime).TotalSeconds;
+                        // Post-roll keeps recording a bit past the silence timeout.
+                        var finalizeAfter = _config.MaxSilenceDuration + Math.Max(0, _config.PostRollSeconds);
 
-                        if (silenceDuration > _config.MaxSilenceDuration)
+                        if (silenceDuration > finalizeAfter)
                         {
-                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Silence timeout ({silenceDuration:F2}s > {_config.MaxSilenceDuration}s). Finalizing...");
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Silence timeout ({silenceDuration:F2}s > {finalizeAfter:F2}s). Finalizing...");
                             // End of speech detected
                             FinalizeAudio();
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Maximum bytes to retain in the rolling pre-roll buffer.
+    /// When pre-roll is disabled, keeps a small floor (~250ms) so VAD word-starts
+    /// aren't clipped.
+    /// </summary>
+    private int PreRollMaxBytes()
+    {
+        double seconds = _config.PreRollEnabled ? Math.Max(0, _config.PreRollSeconds) : 0.25;
+        return Math.Max(1, (int)(seconds * _config.SampleRate * 2));
+    }
+
+    /// <summary>
+    /// Appends a chunk to the rolling pre-roll buffer, trimming the oldest chunks
+    /// to stay within the configured pre-roll duration. Caller must hold _bufferLock.
+    /// </summary>
+    private void AddToPreRoll(byte[] chunk)
+    {
+        _voiceBuffer.Add(chunk);
+        int maxBytes = PreRollMaxBytes();
+        long total = _voiceBuffer.Sum(b => b.Length);
+        while (total > maxBytes && _voiceBuffer.Count > 1)
+        {
+            total -= _voiceBuffer[0].Length;
+            _voiceBuffer.RemoveAt(0);
         }
     }
 
@@ -273,16 +378,31 @@ public class NAudioCapture : IAudioCapture
         lock (_bufferLock)
         {
             _isLongRecording = true;
+            _isMonitoring = false;
             _longRecordingStartTime = DateTime.Now;
             _isSpeechDetected = true; // Treat as always "speaking"
             _speechStartTime = DateTime.Now;
             _accumulatedSpeechDuration = TimeSpan.Zero;
 
-            // Clear buffers and start fresh
             _audioBuffer.Clear();
+
+            // Prepend the rolling pre-roll buffer so audio from just before the
+            // keypress is included.
+            if (_config.PreRollEnabled && _voiceBuffer.Count > 0)
+            {
+                _audioBuffer.AddRange(_voiceBuffer);
+                long preBytes = _voiceBuffer.Sum(b => b.Length);
+                var preRoll = TimeSpan.FromSeconds((double)preBytes / (_config.SampleRate * 2));
+                _accumulatedSpeechDuration = preRoll;
+                _speechStartTime = DateTime.Now - preRoll;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED with {preRoll.TotalSeconds:F2}s pre-roll");
+            }
+            else
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
+            }
             _voiceBuffer.Clear();
 
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording STARTED");
             SpeechDetected?.Invoke(this, true);
         }
     }
@@ -316,7 +436,7 @@ public class NAudioCapture : IAudioCapture
     {
         if (_disposed) return;
 
-        Stop();
+        StopDevice();
         _waveIn?.Dispose();
         _disposed = true;
     }
