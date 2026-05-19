@@ -91,6 +91,7 @@ public class WhisperKeyboardApp : IDisposable
         _recordingIndicator.OnPinClicked += PinFromPushToTalk;
         _recordingIndicator.OnRetryClicked += RetryFailedTranscription;
         _recordingIndicator.OnDiscardClicked += DiscardFailedTranscription;
+        _recordingIndicator.OnCancelClicked += CancelTranscription;
 
         // Set long record button visibility based on config
         _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
@@ -609,6 +610,17 @@ public class WhisperKeyboardApp : IDisposable
         _ = RunTranscriptionAsync(audio, wasLong, wasPtt);
     }
 
+    private void CancelTranscription()
+    {
+        if (!_isTranscribing) return;
+
+        // Cancelling throws OperationCanceledException inside RunTranscriptionAsync,
+        // which is treated as a non-failure — the finally block then runs the normal
+        // post-transcription cleanup (StopListening for PTT, resume listening otherwise).
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcription cancelled by user");
+        _transcriptionCts?.Cancel();
+    }
+
     private void DiscardFailedTranscription()
     {
         if (_lastFailedAudio == null) return;
@@ -894,7 +906,10 @@ public class WhisperKeyboardApp : IDisposable
 
     private void StartPushToTalk()
     {
-        if (_isPushToTalking || _isLongRecording || _isTranscribing)
+        // Block PTT while a transcription is in flight or a failed one is still
+        // awaiting the user's Retry/Discard choice — otherwise the new audio would
+        // be silently dropped by OnAudioReady.
+        if (_isPushToTalking || _isLongRecording || _isTranscribing || _lastFailedAudio != null)
             return;
 
         // Re-pressed during the post-roll window — cancel the pending finalize and

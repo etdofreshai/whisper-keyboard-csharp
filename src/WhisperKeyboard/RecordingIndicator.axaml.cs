@@ -54,6 +54,7 @@ public partial class RecordingIndicator : Window
     public event Action? OnPinClicked;
     public event Action? OnRetryClicked;
     public event Action? OnDiscardClicked;
+    public event Action? OnCancelClicked;
 
     public RecordingIndicator()
     {
@@ -78,6 +79,7 @@ public partial class RecordingIndicator : Window
         PinButton.Click += (s, e) => OnPinClicked?.Invoke();
         RetryButton.Click += (s, e) => OnRetryClicked?.Invoke();
         DiscardButton.Click += (s, e) => OnDiscardClicked?.Invoke();
+        CancelButton.Click += (s, e) => OnCancelClicked?.Invoke();
 
         // Enable dragging
         PointerPressed += OnPointerPressed;
@@ -556,6 +558,18 @@ public partial class RecordingIndicator : Window
         _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
+
+        // Show only the Cancel button while the API call is in flight.
+        LongRecordButton.IsVisible = false;
+        PauseButton.IsVisible = false;
+        StopButton.IsVisible = false;
+        HistoryButton.IsVisible = false;
+        CalibrateButton.IsVisible = false;
+        SettingsButton.IsVisible = false;
+        PinButton.IsVisible = false;
+        RetryButton.IsVisible = false;
+        DiscardButton.IsVisible = false;
+        CancelButton.IsVisible = true;
     }
 
     public void ShowTyping()
@@ -567,6 +581,9 @@ public partial class RecordingIndicator : Window
         _targetOpacity = ActiveOpacity;
 
         _recordingTimer.Stop();
+
+        // Typing can't be cancelled — drop the Cancel button.
+        CancelButton.IsVisible = false;
     }
 
     public void ShowPaused()
@@ -787,6 +804,7 @@ public partial class RecordingIndicator : Window
         PinButton.IsVisible = false;
         RetryButton.IsVisible = false;
         DiscardButton.IsVisible = false;
+        CancelButton.IsVisible = false;
         LongRecordButton.IsVisible = _longRecordButtonConfigured;
         PauseButton.IsVisible = true;
         StopButton.IsVisible = true;
@@ -817,6 +835,7 @@ public partial class RecordingIndicator : Window
         CalibrateButton.IsVisible = false;
         SettingsButton.IsVisible = false;
         PinButton.IsVisible = false;
+        CancelButton.IsVisible = false;
         RetryButton.IsVisible = true;
         DiscardButton.IsVisible = true;
 
