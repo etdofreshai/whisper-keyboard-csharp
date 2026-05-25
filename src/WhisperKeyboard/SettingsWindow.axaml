@@ -206,7 +206,7 @@
                         </StackPanel>
 
                         <TextBlock Text="Supported modifiers: Cmd, Ctrl, Option, Shift" FontSize="10" Foreground="#666666" Margin="0,10,0,0"/>
-                        <TextBlock Text="Supported keys: A-Z, 0-9, F1-F12, Space, Return, etc." FontSize="10" Foreground="#666666"/>
+                        <TextBlock Text="Supported keys: A-Z, 0-9, F1-F24, Space, Return, etc." FontSize="10" Foreground="#666666"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
