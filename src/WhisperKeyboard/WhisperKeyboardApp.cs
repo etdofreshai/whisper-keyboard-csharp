@@ -687,10 +687,12 @@ public class WhisperKeyboardApp : IDisposable
     private static bool IsRepeatKeyword(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return false;
-        var trimmed = new string(text.Where(c => char.IsLetter(c) || char.IsWhiteSpace(c)).ToArray())
-            .Trim()
+        var cleaned = new string(text.Where(c => char.IsLetter(c) || char.IsWhiteSpace(c)).ToArray())
             .ToLowerInvariant();
-        return trimmed == "repeat";
+        var normalized = string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return normalized == "repeat previous"
+            || normalized == "repeat the previous"
+            || normalized == "repeat that";
     }
 
     private bool IsLowConfidence(TranscriptionResult result)

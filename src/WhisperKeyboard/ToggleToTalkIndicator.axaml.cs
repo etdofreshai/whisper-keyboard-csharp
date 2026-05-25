@@ -157,8 +157,17 @@ public partial class ToggleToTalkIndicator : Window
     {
         if (!_hasBeenShown)
         {
+            IntPtr prevForeground = IntPtr.Zero;
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                prevForeground = GetForegroundWindow();
+
             Position = _savedPosition;
             Show();
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && prevForeground != IntPtr.Zero)
+            {
+                Dispatcher.UIThread.Post(() => RestoreForeground(prevForeground), DispatcherPriority.Background);
+            }
             return;
         }
 
@@ -252,4 +261,27 @@ public partial class ToggleToTalkIndicator : Window
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    private static void RestoreForeground(IntPtr hwnd)
+    {
+        // Windows blocks SetForegroundWindow when the calling process didn't own input recently.
+        // AttachThreadInput trick lets us hand foreground back to the previous app reliably.
+        try
+        {
+            uint targetThread = GetWindowThreadProcessId(hwnd, IntPtr.Zero);
+            uint currentThread = GetCurrentThreadId();
+            if (targetThread == 0 || targetThread == currentThread)
+            {
+                SetForegroundWindow(hwnd);
+                return;
+            }
+            AttachThreadInput(currentThread, targetThread, true);
+            SetForegroundWindow(hwnd);
+            AttachThreadInput(currentThread, targetThread, false);
+        }
+        catch { }
+    }
 }
