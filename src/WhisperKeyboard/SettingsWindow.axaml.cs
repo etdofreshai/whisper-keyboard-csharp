@@ -580,8 +580,12 @@ public partial class SettingsWindow : Window
             parts.Add(keyName);
         }
 
-        // Require at least one modifier for a valid hotkey
-        if (parts.Count < 2)
+        // Require at least one modifier for a valid hotkey, except for F13-F24
+        bool isF13to24 = !string.IsNullOrEmpty(keyName) && keyName.StartsWith("F") &&
+                         int.TryParse(keyName.Substring(1), out int fNum) &&
+                         fNum >= 13 && fNum <= 24;
+
+        if (parts.Count < 2 && !isF13to24)
         {
             return "";
         }
