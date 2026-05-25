@@ -12,6 +12,8 @@ F13 is used in a "tap to start, tap to stop" toggle fashion with Whisper Keyboar
 | File | Platform | What it does |
 | --- | --- | --- |
 | `r400-remap.ps1` | Windows | PowerShell + C# Raw Input listener. Filters `WM_INPUT` events by device VID/PID and synthesizes an F13 keystroke via `SendInput`. Runs as a foreground process. |
+| `r400-remap-launcher.vbs` | Windows | Hidden launcher — runs the PS1 with no visible window. |
+| `install-startup.ps1` | Windows | Adds/removes a Startup-folder shortcut so the remap runs hidden at every login. |
 | `r400-remap-mac.sh` | macOS | Uses Apple's built-in `hidutil` to remap at the HID layer (no third-party app). Can install a LaunchAgent for persistence. |
 
 ## Windows
@@ -24,8 +26,17 @@ Leave the window open while you want the remap active. The remote's B will
 also still be delivered to the focused app (Raw Input is observational —
 it can listen but can't suppress).
 
-To run hidden at login, create a `.vbs` launcher pointing at the `.ps1` and
-drop it in your Startup folder.
+To run hidden at every login:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-startup.ps1
+# uninstall:
+powershell -ExecutionPolicy Bypass -File install-startup.ps1 uninstall
+```
+
+That drops a shortcut to `r400-remap-launcher.vbs` into your Startup folder.
+The launcher runs the PS1 with `WindowStyle Hidden`, so nothing appears.
+To start it right now without rebooting: `wscript tools\r400-remap-launcher.vbs`.
 
 ## macOS
 
