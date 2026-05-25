@@ -496,12 +496,59 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        // Build the hotkey string
-        var hotkey = BuildHotkeyString(e.KeyModifiers, e.Key);
+        // Handle F13-F24 which Avalonia doesn't recognize (use physical key scanning)
+        string? hotkey = null;
+        if (e.Key == Key.None && e.PhysicalKey != null)
+        {
+            // Try to map physical key to F13-F24
+            var f13to24 = DetectF13toF24(e);
+            if (!string.IsNullOrEmpty(f13to24))
+            {
+                var parts = new List<string>();
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Meta)) parts.Add("Cmd");
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Control)) parts.Add("Ctrl");
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Alt)) parts.Add("Option");
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
+                parts.Add(f13to24);
+                hotkey = parts.Count >= 2 ? string.Join("+", parts) : "";
+            }
+        }
+
+        // Standard key handling
+        if (string.IsNullOrEmpty(hotkey))
+        {
+            hotkey = BuildHotkeyString(e.KeyModifiers, e.Key);
+        }
+
         if (!string.IsNullOrEmpty(hotkey))
         {
             textBox.Text = hotkey;
         }
+    }
+
+    private static string? DetectF13toF24(KeyEventArgs e)
+    {
+        // F13-F24 virtual key codes: 0x7C-0x87
+        // When Avalonia doesn't recognize these, we try to get them from platform data
+        // This is a best-effort workaround for extended function keys
+        try
+        {
+            if (e.PhysicalKey != null)
+            {
+                var physicalKeyStr = e.PhysicalKey.ToString();
+                // On Windows, physical key for F13 might be "F13", "IntlBackslash", or similar
+                // Check if it contains F + number
+                if (physicalKeyStr.StartsWith("F") && int.TryParse(physicalKeyStr.Substring(1), out int fNum))
+                {
+                    if (fNum >= 13 && fNum <= 24)
+                    {
+                        return $"F{fNum}";
+                    }
+                }
+            }
+        }
+        catch { }
+        return null;
     }
 
     private static bool IsModifierKey(Key key)
