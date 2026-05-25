@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WhisperKeyboard.ToggleToTalkIndicator"
+        Title="Toggle-to-Talk"
+        Width="280"
+        Height="56"
+        CanResize="False"
+        ShowInTaskbar="False"
+        SystemDecorations="None"
+        Topmost="True"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent">
+
+    <Border Background="#1E1E1E"
+            CornerRadius="12"
+            BorderBrush="#5C3C3C"
+            BorderThickness="1"
+            Padding="10,8">
+        <Grid ColumnDefinitions="100,*,Auto,Auto">
+
+            <!-- Waveform -->
+            <Border Grid.Column="0"
+                    Background="#141414"
+                    CornerRadius="4"
+                    ClipToBounds="True"
+                    Margin="0,0,8,0">
+                <Canvas x:Name="WaveformCanvas"/>
+            </Border>
+
+            <!-- Status / timer -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock x:Name="StatusText"
+                           Text="Toggle-to-Talk"
+                           Foreground="#FF9696"
+                           FontSize="11"/>
+                <TextBlock x:Name="TimerText"
+                           Text="0:00"
+                           Foreground="#FFC8C8"
+                           FontSize="16"
+                           FontWeight="Bold"/>
+            </StackPanel>
+
+            <!-- Toggle / Stop button -->
+            <Button Grid.Column="2"
+                    x:Name="ToggleButton"
+                    Width="32" Height="32"
+                    Background="#323232"
+                    BorderThickness="0"
+                    CornerRadius="16"
+                    Padding="0"
+                    Margin="0,0,4,0"
+                    ToolTip.Tip="Start/Stop">
+                <Panel>
+                    <Ellipse x:Name="StartIcon"
+                             Width="12" Height="12"
+                             Fill="#FF4444"
+                             IsVisible="True"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"/>
+                    <Rectangle x:Name="StopIcon"
+                               Width="10" Height="10"
+                               Fill="#FF4444"
+                               IsVisible="False"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Panel>
+            </Button>
+
+            <!-- Pin button -->
+            <Button Grid.Column="3"
+                    x:Name="PinButton"
+                    Width="32" Height="32"
+                    Background="#323232"
+                    BorderThickness="0"
+                    CornerRadius="16"
+                    Padding="0"
+                    ToolTip.Tip="Pin (keep window visible)">
+                <Path x:Name="PinIcon"
+                      Data="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z"
+                      Fill="#B4B4B4"
+                      Width="14" Height="14"
+                      Stretch="Uniform"/>
+            </Button>
+        </Grid>
+    </Border>
+</Window>

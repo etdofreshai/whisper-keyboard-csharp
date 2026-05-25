@@ -1,3 +1,4 @@
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -19,6 +20,7 @@ public class WhisperKeyboardApp : IDisposable
     private readonly ClipboardTextTyper _textTyper;
     private readonly TranscriptionHistory _history;
     private readonly RecordingIndicator _recordingIndicator;
+    private readonly ToggleToTalkIndicator _toggleToTalkIndicator;
     private readonly GlobalHotkey _globalHotkey;
     private readonly TextProcessor _textProcessor;
     private IPushToTalkHook? _pushToTalkHook;
@@ -31,6 +33,7 @@ public class WhisperKeyboardApp : IDisposable
     private bool _isPushToTalking;
     private bool _wasPushToTalking; // Track if audio came from PTT for post-transcription behavior
     private bool _wasLongRecording; // Track if audio came from long recording for transcription method
+    private bool _toggleToTalkAutoStarted; // Toggle-to-Talk auto-started listening; bar stays hidden, stop listening after txn
     private DateTime _ignoreUntil = DateTime.MinValue;
     private bool _disposed;
     private CancellationTokenSource? _transcriptionCts;
@@ -63,6 +66,8 @@ public class WhisperKeyboardApp : IDisposable
         }
 
         _recordingIndicator = new RecordingIndicator();
+        _toggleToTalkIndicator = new ToggleToTalkIndicator();
+        _toggleToTalkIndicator.OnToggleClicked += ToggleLongRecording;
         _globalHotkey = new GlobalHotkey();
         _textProcessor = new TextProcessor(_config);
 
@@ -94,7 +99,7 @@ public class WhisperKeyboardApp : IDisposable
         _recordingIndicator.OnCancelClicked += CancelTranscription;
 
         // Set long record button visibility based on config
-        _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
+        _recordingIndicator.SetLongRecordButtonVisible(false);
 
         // Register global hotkeys
         RegisterHotkeys();
@@ -400,6 +405,7 @@ public class WhisperKeyboardApp : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             _recordingIndicator.UpdateVolume(volume);
+            _toggleToTalkIndicator.UpdateVolume(volume);
         });
     }
 
@@ -517,6 +523,21 @@ public class WhisperKeyboardApp : IDisposable
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Transcribed: \"{result.Text}\"");
 
+                // "Repeat" keyword: if user says just "repeat", re-type the previous transcription
+                if (IsRepeatKeyword(result.Text))
+                {
+                    var prev = _history.GetEntries().FirstOrDefault();
+                    if (prev != null && !string.IsNullOrWhiteSpace(prev.FullText))
+                    {
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Repeat keyword detected - reusing previous: \"{prev.FullText}\"");
+                        result.Text = prev.FullText;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Repeat keyword detected but no previous transcription available");
+                    }
+                }
+
                 // Confidence check (skip for long recordings which are more reliable)
                 if (!isFromLongRecording && IsLowConfidence(result))
                 {
@@ -566,6 +587,15 @@ public class WhisperKeyboardApp : IDisposable
                 if (isFromPushToTalk)
                 {
                     // PTT: stop listening and hide the toolbar after a brief delay
+                    await Task.Delay(500);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        StopListening();
+                    });
+                }
+                else if (isFromLongRecording && _toggleToTalkAutoStarted)
+                {
+                    _toggleToTalkAutoStarted = false;
                     await Task.Delay(500);
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -652,6 +682,15 @@ public class WhisperKeyboardApp : IDisposable
                 }
             });
         }
+    }
+
+    private static bool IsRepeatKeyword(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var trimmed = new string(text.Where(c => char.IsLetter(c) || char.IsWhiteSpace(c)).ToArray())
+            .Trim()
+            .ToLowerInvariant();
+        return trimmed == "repeat";
     }
 
     private bool IsLowConfidence(TranscriptionResult result)
@@ -831,22 +870,36 @@ public class WhisperKeyboardApp : IDisposable
 
     private void StartLongRecording()
     {
-        if (!_isListening)
-        {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - not listening");
-            return;
-        }
-
         if (_isTranscribing)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - transcription in progress");
             return;
         }
 
+        bool autoStarted = false;
+        if (!_isListening)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Toggle-to-Talk: auto-starting listening");
+            StartListening();
+            autoStarted = true;
+        }
+
         if (_isPaused || _isStandby)
         {
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start long recording - paused or standby");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Toggle-to-Talk: auto-resuming");
+            ResumeListening();
+        }
+
+        if (!_isListening)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Cannot start toggle-to-talk - listening failed to start");
             return;
+        }
+
+        if (autoStarted)
+        {
+            _toggleToTalkAutoStarted = true;
+            _recordingIndicator.HideCompletely();
         }
 
         _isLongRecording = true;
@@ -860,8 +913,8 @@ public class WhisperKeyboardApp : IDisposable
 
         Dispatcher.UIThread.Post(() =>
         {
-            UpdateStatus("Long Recording...");
-            _recordingIndicator.ShowLongRecording();
+            UpdateStatus("Toggle-to-Talk...");
+            _toggleToTalkIndicator.ShowRecording();
         });
 
         // Monitor for timeout
@@ -897,8 +950,12 @@ public class WhisperKeyboardApp : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             UpdateStatus("Transcribing...");
-            _recordingIndicator.ShowLongRecordingStopped();
-            _recordingIndicator.ShowTranscribing();
+            _toggleToTalkIndicator.ShowStopped();
+            if (!_toggleToTalkAutoStarted)
+            {
+                _recordingIndicator.ShowLongRecordingStopped();
+                _recordingIndicator.ShowTranscribing();
+            }
         });
 
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Long recording stopped");
@@ -1065,7 +1122,7 @@ public class WhisperKeyboardApp : IDisposable
         // Update long record button visibility based on new settings
         Dispatcher.UIThread.Post(() =>
         {
-            _recordingIndicator.SetLongRecordButtonVisible(_config.ShowLongRecordButton);
+            _recordingIndicator.SetLongRecordButtonVisible(false);
 
             // Apply the pre-roll mic policy while idle: keep the mic warm when
             // enabled, release it when disabled.

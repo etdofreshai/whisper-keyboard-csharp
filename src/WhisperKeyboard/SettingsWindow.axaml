@@ -196,7 +196,7 @@
                         </StackPanel>
 
                         <StackPanel Spacing="5">
-                            <TextBlock Text="Long Recording (Start/Stop)" FontSize="12" Foreground="#888888"/>
+                            <TextBlock Text="Toggle-to-Talk (Start/Stop)" FontSize="12" Foreground="#888888"/>
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBox x:Name="LongRecordHotkeyBox" Grid.Column="0" Watermark="Click to set hotkey"
                                          GotFocus="OnHotkeyBoxGotFocus" LostFocus="OnHotkeyBoxLostFocus" KeyDown="OnHotkeyBoxKeyDown"/>
@@ -225,8 +225,8 @@
                         <CheckBox x:Name="ShowNotificationsCheck" Content="Show notifications" IsChecked="True"/>
 
                         <StackPanel Spacing="5" Margin="0,15,0,0">
-                            <TextBlock Text="Long Recording" FontSize="12" Foreground="#888888" FontWeight="SemiBold"/>
-                            <CheckBox x:Name="ShowLongRecordButtonCheck" Content="Show Long Record button on panel"/>
+                            <TextBlock Text="Toggle-to-Talk" FontSize="12" Foreground="#888888" FontWeight="SemiBold"/>
+                            <CheckBox x:Name="ShowLongRecordButtonCheck" Content="Show Long Record button on panel" IsVisible="False"/>
                             <StackPanel Spacing="5" Margin="20,5,0,0">
                                 <TextBlock Text="Max Duration (minutes):" FontSize="12" Foreground="#888888"/>
                                 <NumericUpDown x:Name="MaxLongRecordMinutes" Minimum="5" Maximum="30" Value="30" Increment="5"/>
