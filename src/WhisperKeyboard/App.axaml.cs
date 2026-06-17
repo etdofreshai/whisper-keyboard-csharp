@@ -49,11 +49,15 @@ public partial class App : Application
             // Don't shutdown when the hidden window closes
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-            // On macOS, check permissions before initializing when running from .app bundle
+            // On macOS, check permissions AND the audio capture backend before
+            // initializing when running from a .app bundle. The OpenAL term ensures
+            // the setup dialog (and its "Audio Capture" row) appears when openal-soft
+            // is missing even if both OS permissions are already granted.
+            bool openAlMissing = OperatingSystem.IsMacOS() && !(OpenALNative.IsAvailable || OpenALNative.TryReload());
             if (OperatingSystem.IsMacOS() && MacOSPermissions.IsRunningFromAppBundle()
-                && MacOSPermissions.AnyPermissionMissing())
+                && (MacOSPermissions.AnyPermissionMissing() || openAlMissing))
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Missing macOS permissions - showing setup dialog");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Missing macOS permissions or audio backend - showing setup dialog");
                 var permissionWindow = new PermissionSetupWindow();
                 permissionWindow.SetupComplete += (s, e) =>
                 {

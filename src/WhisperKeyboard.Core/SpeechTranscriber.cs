@@ -32,9 +32,78 @@ public class SpeechTranscriber : IDisposable
         }
     }
 
+    // Don't hard-block on a missing key for non-OpenAI endpoints: some self-hosted /
+    // OpenAI-compatible Whisper servers (e.g. whisper.cpp, faster-whisper) accept
+    // unauthenticated requests. If the server DOES need a key it returns 401, which the
+    // Settings "Test endpoint" button surfaces clearly.
+    // NOTE: the default stt.etdofresh.com DOES require a bearer token — set an API key.
+    private bool RequiresApiKey =>
+        string.IsNullOrWhiteSpace(_config.ApiBaseUrl) ||
+        _config.ApiBaseUrl.Contains("api.openai.com", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Test whether a transcription endpoint is reachable and the credentials/model are accepted.
+    /// Sends a short silent clip to {baseUrl}/v1/audio/transcriptions and reports the outcome.
+    /// Static so the Settings window can validate in-progress values before they are saved.
+    /// </summary>
+    public static async Task<(bool Ok, string Message)> TestEndpointAsync(
+        string baseUrl, string apiKey, string model, CancellationToken cancellationToken = default)
+    {
+        var resolvedBase = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.openai.com" : baseUrl.TrimEnd('/');
+        var url = $"{resolvedBase}/v1/audio/transcriptions";
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            if (!string.IsNullOrEmpty(apiKey))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+            // ~0.3s of silence at 16kHz mono 16-bit PCM
+            var silence = new byte[16000 * 2 * 3 / 10];
+            var wav = ConvertToWav(silence, 16000, 1);
+
+            using var content = new MultipartFormDataContent();
+            var audioContent = new ByteArrayContent(wav);
+            audioContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+            content.Add(audioContent, "file", "test.wav");
+            content.Add(new StringContent(string.IsNullOrWhiteSpace(model) ? "whisper-1" : model), "model");
+            content.Add(new StringContent("json"), "response_format");
+            request.Content = content;
+
+            var response = await http.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+                return (true, $"OK — endpoint reachable, credentials accepted (HTTP {(int)response.StatusCode}).");
+
+            var snippet = body.Length > 200 ? body.Substring(0, 200) + "…" : body;
+            var hint = response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Unauthorized => "Check your API key.",
+                System.Net.HttpStatusCode.Forbidden => "Key rejected or no access to this model.",
+                System.Net.HttpStatusCode.NotFound => "Endpoint path not found — check the base URL.",
+                _ => "See server response."
+            };
+            return (false, $"HTTP {(int)response.StatusCode} {response.StatusCode}: {hint} {snippet}".Trim());
+        }
+        catch (TaskCanceledException)
+        {
+            return (false, "Timed out — endpoint did not respond within 15s. Check the URL/network.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return (false, $"Connection failed: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
     public async Task<TranscriptionResult?> TranscribeAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_config.ApiKey))
+        if (RequiresApiKey && string.IsNullOrEmpty(_config.ApiKey))
         {
             Console.WriteLine("Error: OpenAI API key not configured");
             return null;
@@ -164,7 +233,7 @@ public class SpeechTranscriber : IDisposable
     /// </summary>
     public async Task<TranscriptionResult?> TranscribeLongRecordingAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_config.ApiKey))
+        if (RequiresApiKey && string.IsNullOrEmpty(_config.ApiKey))
         {
             Console.WriteLine("Error: OpenAI API key not configured");
             return null;
@@ -259,7 +328,7 @@ public class SpeechTranscriber : IDisposable
     /// </summary>
     public async Task<TranscriptionResult?> TranscribeFileAsync(string filePath, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_config.ApiKey))
+        if (RequiresApiKey && string.IsNullOrEmpty(_config.ApiKey))
         {
             Console.WriteLine("Error: OpenAI API key not configured");
             return null;

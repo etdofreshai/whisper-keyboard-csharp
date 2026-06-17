@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace WhisperKeyboard;
@@ -11,6 +12,8 @@ public static class OpenALNative
     // OpenAL-soft library path - try multiple locations
     private static readonly string[] LibraryPaths = new[]
     {
+        Path.Combine(AppContext.BaseDirectory, "libopenal.dylib"),   // bundled in the .app (Contents/MacOS)
+        Path.Combine(AppContext.BaseDirectory, "libopenal.1.dylib"),
         "/opt/homebrew/opt/openal-soft/lib/libopenal.dylib",  // Apple Silicon Mac
         "/usr/local/opt/openal-soft/lib/libopenal.dylib",     // Intel Mac
         "/usr/lib/libopenal.so.1",                             // Linux
@@ -20,6 +23,13 @@ public static class OpenALNative
     };
 
     private static IntPtr _libraryHandle;
+
+    /// <summary>Whether the OpenAL capture backend (openal-soft) loaded successfully.</summary>
+    public static bool IsAvailable { get; private set; }
+    /// <summary>Path/source the library loaded from, or null if unavailable.</summary>
+    public static string? LoadedPath { get; private set; }
+    /// <summary>Human-readable reason the library failed to load, or null when available.</summary>
+    public static string? LoadError { get; private set; }
 
     // Function delegates
     private delegate IntPtr AlcOpenDeviceDelegate(string? devicename);
@@ -50,32 +60,67 @@ public static class OpenALNative
 
     static OpenALNative()
     {
-        LoadLibrary();
+        TryLoadLibrary();
     }
 
-    private static void LoadLibrary()
+    /// <summary>
+    /// Re-attempt loading the library if it is not already available. Lets the app
+    /// pick up an openal-soft install that happened after startup (e.g. the user runs
+    /// `brew install openal-soft` and clicks "Check Again"). Returns IsAvailable.
+    /// </summary>
+    public static bool TryReload()
+    {
+        if (IsAvailable) return true;
+        TryLoadLibrary();
+        return IsAvailable;
+    }
+
+    private static bool TryLoadFrom(IntPtr handle, string source)
+    {
+        try
+        {
+            _libraryHandle = handle;
+            LoadFunctions();
+            LoadedPath = source;
+            LoadError = null;
+            IsAvailable = true;
+            Console.WriteLine($"Loaded OpenAL from: {source}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Library loaded but is missing expected entry points (e.g. macOS's
+            // built-in OpenAL.framework lacks capture support) — treat as unavailable
+            // and free the handle so repeated probes (TryReload) don't leak it.
+            LoadError = $"OpenAL loaded from {source} but is missing required functions: {ex.Message}";
+            IsAvailable = false;
+            _libraryHandle = IntPtr.Zero;
+            try { NativeLibrary.Free(handle); } catch { /* best effort */ }
+            return false;
+        }
+    }
+
+    private static void TryLoadLibrary()
     {
         foreach (var path in LibraryPaths)
         {
-            if (NativeLibrary.TryLoad(path, out _libraryHandle))
+            if (!string.IsNullOrEmpty(path) && NativeLibrary.TryLoad(path, out IntPtr handle))
             {
-                Console.WriteLine($"Loaded OpenAL from: {path}");
-                LoadFunctions();
-                return;
+                if (TryLoadFrom(handle, path)) return;
             }
         }
 
         // Try loading by name as fallback
-        if (NativeLibrary.TryLoad("openal", out _libraryHandle) ||
-            NativeLibrary.TryLoad("OpenAL", out _libraryHandle))
+        if (NativeLibrary.TryLoad("openal", out IntPtr sysHandle) ||
+            NativeLibrary.TryLoad("OpenAL", out sysHandle))
         {
-            Console.WriteLine("Loaded OpenAL from system path");
-            LoadFunctions();
-            return;
+            if (TryLoadFrom(sysHandle, "system path")) return;
         }
 
-        throw new DllNotFoundException(
-            "Could not load OpenAL library. On macOS, install with: brew install openal-soft");
+        IsAvailable = false;
+        LoadedPath = null;
+        LoadError = "OpenAL capture backend not found. On macOS install with: brew install openal-soft";
+        Console.WriteLine($"[OpenAL] {LoadError}");
     }
 
     private static void LoadFunctions()
@@ -101,7 +146,9 @@ public static class OpenALNative
 
     public static IntPtr CaptureOpenDevice(string? deviceName, int sampleRate, int format, int bufferSize)
     {
-        return _alcCaptureOpenDevice!(deviceName, sampleRate, format, bufferSize);
+        if (!IsAvailable || _alcCaptureOpenDevice == null)
+            throw new DllNotFoundException(LoadError ?? "OpenAL capture backend not available");
+        return _alcCaptureOpenDevice(deviceName, sampleRate, format, bufferSize);
     }
 
     public static bool CaptureCloseDevice(IntPtr device)
@@ -141,7 +188,10 @@ public static class OpenALNative
     public static List<string> GetCaptureDeviceNames()
     {
         var devices = new List<string>();
-        var ptr = _alcGetString!(IntPtr.Zero, ALC_CAPTURE_DEVICE_SPECIFIER);
+        if (!IsAvailable || _alcGetString == null)
+            return devices;
+
+        var ptr = _alcGetString(IntPtr.Zero, ALC_CAPTURE_DEVICE_SPECIFIER);
 
         if (ptr == IntPtr.Zero)
             return devices;

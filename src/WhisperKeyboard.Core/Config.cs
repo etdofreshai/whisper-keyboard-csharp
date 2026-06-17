@@ -73,6 +73,11 @@ public class Config
 
     // Push-to-Talk Settings
     public bool PushToTalkEnabled { get; set; } = true;
+    // Which keys must be held for push-to-talk. A "+"-joined list of modifier
+    // tokens (e.g. "RightOption+RightShift", "RightControl+RightShift", "Fn").
+    // macOS: any combination of Left/Right Control/Shift/Option/Command and Fn.
+    // Windows: Left/Right Control/Shift/Alt/Win (Fn unsupported).
+    public string PushToTalkKeys { get; set; } = "RightOption+RightShift";
 
     // General Settings
     public bool ShowNotifications { get; set; } = true;

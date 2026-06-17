@@ -108,9 +108,9 @@ public class WhisperKeyboardApp : IDisposable
         if (_config.PushToTalkEnabled)
         {
             if (OperatingSystem.IsWindows())
-                _pushToTalkHook = new PushToTalkHook();
+                _pushToTalkHook = new PushToTalkHook(_config.PushToTalkKeys);
             else if (OperatingSystem.IsMacOS())
-                _pushToTalkHook = new PushToTalkHookMacOS();
+                _pushToTalkHook = new PushToTalkHookMacOS(_config.PushToTalkKeys);
 
             if (_pushToTalkHook != null)
             {

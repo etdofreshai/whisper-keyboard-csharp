@@ -18,7 +18,9 @@ dotnet build "$PROJECT" -c Release -p:UseSharedCompilation=false
 
 echo "==> Publishing..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    dotnet publish "$PROJECT" -c Release -r osx-arm64 --self-contained false -p:UseSharedCompilation=false
+    # Self-contained so the .app launches without a separately-installed .NET runtime.
+    # (Homebrew's dotnet@8 is keg-only and not in a TCC/loader-discoverable location.)
+    dotnet publish "$PROJECT" -c Release -r osx-arm64 --self-contained true -p:UseSharedCompilation=false
     PUBLISH_DIR="$PROJECT_DIR/src/WhisperKeyboard/bin/Release/net8.0/osx-arm64/publish"
 
     echo "==> Creating macOS app bundle..."
@@ -49,6 +51,32 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     else
         echo "Warning: AppIcon.icns not found at $MACOS_RESOURCES/AppIcon.icns"
     fi
+
+    # Bundle openal-soft (capture backend) so the app doesn't depend on a
+    # separate Homebrew install at runtime. OpenALNative probes Contents/MacOS first.
+    OAL_SRC=""
+    for cand in \
+        /opt/homebrew/opt/openal-soft/lib/libopenal.1.dylib \
+        /usr/local/opt/openal-soft/lib/libopenal.1.dylib \
+        /opt/homebrew/opt/openal-soft/lib/libopenal.dylib; do
+        if [[ -f "$cand" ]]; then OAL_SRC="$cand"; break; fi
+    done
+    if [[ -n "$OAL_SRC" ]]; then
+        cp "$OAL_SRC" "$APP_PATH/Contents/MacOS/libopenal.dylib"
+        echo "==> Bundled openal-soft from $OAL_SRC"
+    else
+        echo "Warning: openal-soft not found — install with 'brew install openal-soft' (app will still try Homebrew paths at runtime)"
+    fi
+
+    # Code-sign the bundle with a stable identifier so macOS TCC (Accessibility,
+    # Input Monitoring, Microphone) keys on a consistent identity. Uses ad-hoc
+    # signing by default; set CODESIGN_IDENTITY to a real/self-signed identity to
+    # make granted permissions survive across rebuilds.
+    SIGN_ID="${CODESIGN_IDENTITY:--}"
+    echo "==> Code-signing app bundle (identity: $SIGN_ID)..."
+    codesign --force --deep --sign "$SIGN_ID" --identifier com.whisper-keyboard "$APP_PATH" \
+        && codesign --verify --deep --strict "$APP_PATH" && echo "    signature OK" \
+        || echo "    WARNING: codesign failed — permissions may need re-granting"
 
     echo "==> App bundle created: $APP_PATH"
 else

@@ -15,6 +15,7 @@ public partial class PermissionSetupWindow : Window
     public event EventHandler? SetupComplete;
 
     private bool _setupCompleted;
+    private bool _suppressOpenAlLabel;
     private DispatcherTimer? _pollTimer;
 
     public PermissionSetupWindow()
@@ -50,7 +51,28 @@ public partial class PermissionSetupWindow : Window
         if (hasInputMonitoring)
             OpenInputMonitoringButton.Background = DisabledButtonBg;
 
-        if (hasAccessibility && hasInputMonitoring)
+        // Audio capture backend (OpenAL / openal-soft) — re-probe in case it was
+        // just installed while this window is open.
+        bool hasOpenAl = OpenALNative.IsAvailable || OpenALNative.TryReload();
+        OpenAlStatusDot.Fill = hasOpenAl ? GrantedBrush : NotGrantedBrush;
+        if (hasOpenAl)
+        {
+            OpenAlButton.Content = "Installed";
+            OpenAlButton.IsEnabled = false;
+            OpenAlButton.Background = DisabledButtonBg;
+            OpenAlDescription.Text = "Microphone capture backend is available.";
+        }
+        else
+        {
+            // Don't overwrite the transient "Copied!" confirmation set by the button handler.
+            if (!_suppressOpenAlLabel)
+                OpenAlButton.Content = "Copy command";
+            OpenAlButton.IsEnabled = true;
+            OpenAlButton.Background = new SolidColorBrush(Color.Parse("#323232"));
+            OpenAlDescription.Text = "Missing. In Terminal run:  brew install openal-soft";
+        }
+
+        if (hasAccessibility && hasInputMonitoring && hasOpenAl)
         {
             CheckAgainButton.Content = "All Granted!";
             CheckAgainButton.IsEnabled = false;
@@ -88,6 +110,26 @@ public partial class PermissionSetupWindow : Window
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Opening Input Monitoring settings");
         MacOSPermissions.OpenInputMonitoringSettings();
         MacOSPermissions.RequestInputMonitoringPermission();
+    }
+
+    private async void OnOpenAlButtonClick(object? sender, RoutedEventArgs e)
+    {
+        const string cmd = "brew install openal-soft";
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Copying openal-soft install command to clipboard");
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null)
+        {
+            await clipboard.SetTextAsync(cmd);
+            _suppressOpenAlLabel = true;
+            OpenAlButton.Content = "Copied!";
+            await Task.Delay(1000);
+            _suppressOpenAlLabel = false;
+        }
+
+        // Re-probe in case openal-soft was just installed, then refresh the UI.
+        OpenALNative.TryReload();
+        RefreshPermissionStatus();
     }
 
     private void OnCheckAgainClick(object? sender, RoutedEventArgs e)

@@ -198,6 +198,9 @@ public partial class SettingsWindow : Window
             ApiBaseUrlBox.IsVisible = true;
         }
 
+        // Model
+        ModelBox.Text = _config.Model;
+
         // Language
         for (int i = 0; i < LanguageBox.Items.Count; i++)
         {
@@ -285,6 +288,17 @@ public partial class SettingsWindow : Window
         OpenSettingsHotkeyBox.Text = _config.OpenSettingsHotkey;
         LongRecordHotkeyBox.Text = _config.LongRecordHotkey;
 
+        // Push-to-talk keys
+        for (int i = 0; i < PushToTalkKeysBox.Items.Count; i++)
+        {
+            if (PushToTalkKeysBox.Items[i] is ComboBoxItem item &&
+                string.Equals(item.Tag?.ToString(), _config.PushToTalkKeys, StringComparison.OrdinalIgnoreCase))
+            {
+                PushToTalkKeysBox.SelectedIndex = i;
+                break;
+            }
+        }
+
         // Long recording settings
         ShowLongRecordButtonCheck.IsChecked = _config.ShowLongRecordButton;
         MaxLongRecordMinutes.Value = _config.MaxLongRecordMinutes;
@@ -324,6 +338,9 @@ public partial class SettingsWindow : Window
                 _config.ApiBaseUrl = tag;
             }
         }
+
+        // Model
+        _config.Model = string.IsNullOrWhiteSpace(ModelBox.Text) ? "whisper-1" : ModelBox.Text.Trim();
 
         // Language
         if (LanguageBox.SelectedItem is ComboBoxItem langItem)
@@ -388,6 +405,12 @@ public partial class SettingsWindow : Window
         _config.OpenSettingsHotkey = OpenSettingsHotkeyBox.Text?.Trim() ?? "";
         _config.LongRecordHotkey = LongRecordHotkeyBox.Text?.Trim() ?? "";
 
+        // Push-to-talk keys
+        if (PushToTalkKeysBox.SelectedItem is ComboBoxItem pttItem)
+        {
+            _config.PushToTalkKeys = pttItem.Tag?.ToString() ?? "RightOption+RightShift";
+        }
+
         // Long recording settings
         _config.ShowLongRecordButton = ShowLongRecordButtonCheck.IsChecked ?? false;
         _config.MaxLongRecordMinutes = (int)(MaxLongRecordMinutes.Value ?? 30);
@@ -400,6 +423,54 @@ public partial class SettingsWindow : Window
     private void OnCancelClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    /// <summary>
+    /// Resolve the STT base URL from the current (unsaved) UI selection.
+    /// </summary>
+    private string ResolveBaseUrlFromUi()
+    {
+        if (ApiProviderBox.SelectedItem is ComboBoxItem providerItem)
+        {
+            var tag = providerItem.Tag?.ToString() ?? "";
+            if (tag == "custom")
+            {
+                return string.IsNullOrWhiteSpace(ApiBaseUrlBox.Text)
+                    ? "https://stt.etdofresh.com"
+                    : ApiBaseUrlBox.Text.Trim();
+            }
+            return tag;
+        }
+        return _config.ApiBaseUrl;
+    }
+
+    private async void OnTestEndpointClick(object? sender, RoutedEventArgs e)
+    {
+        var baseUrl = ResolveBaseUrlFromUi();
+        var apiKey = !string.IsNullOrWhiteSpace(ApiKeyBox.Text)
+            ? ApiKeyBox.Text.Trim()
+            : (Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? _config.ApiKey);
+        var model = string.IsNullOrWhiteSpace(ModelBox.Text) ? "whisper-1" : ModelBox.Text.Trim();
+
+        TestEndpointButton.IsEnabled = false;
+        TestEndpointStatus.Foreground = new SolidColorBrush(Color.Parse("#888888"));
+        TestEndpointStatus.Text = $"Testing {baseUrl} …";
+
+        try
+        {
+            var (ok, message) = await SpeechTranscriber.TestEndpointAsync(baseUrl, apiKey, model);
+            TestEndpointStatus.Foreground = new SolidColorBrush(ok ? Color.Parse("#3CB371") : Color.Parse("#E05050"));
+            TestEndpointStatus.Text = message;
+        }
+        catch (Exception ex)
+        {
+            TestEndpointStatus.Foreground = new SolidColorBrush(Color.Parse("#E05050"));
+            TestEndpointStatus.Text = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            TestEndpointButton.IsEnabled = true;
+        }
     }
 
     private async void OnHistoryCopyClick(object? sender, RoutedEventArgs e)

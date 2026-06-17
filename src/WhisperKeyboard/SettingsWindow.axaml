@@ -81,12 +81,22 @@
                         </StackPanel>
 
                         <StackPanel Spacing="5">
+                            <TextBlock Text="Model" FontSize="12" Foreground="#888888"/>
+                            <TextBox x:Name="ModelBox" Watermark="whisper-1"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="5">
                             <TextBlock Text="API Key" FontSize="12" Foreground="#888888"/>
                             <TextBox x:Name="ApiKeyBox" PasswordChar="*" Watermark="sk-..."/>
                             <TextBlock Text="Or set OPENAI_API_KEY environment variable" FontSize="10" Foreground="#666666"/>
                         </StackPanel>
 
                         <CheckBox x:Name="ShowApiKeyCheck" Content="Show API Key"/>
+
+                        <StackPanel Spacing="5">
+                            <Button x:Name="TestEndpointButton" Content="Test endpoint" HorizontalAlignment="Left" Click="OnTestEndpointClick"/>
+                            <TextBlock x:Name="TestEndpointStatus" Text="" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
 
                         <StackPanel Spacing="5">
                             <TextBlock Text="Language" FontSize="12" Foreground="#888888"/>
@@ -207,6 +217,25 @@
 
                         <TextBlock Text="Supported modifiers: Cmd, Ctrl, Option, Shift" FontSize="10" Foreground="#666666" Margin="0,10,0,0"/>
                         <TextBlock Text="Supported keys: A-Z, 0-9, F1-F24, Space, Return, etc." FontSize="10" Foreground="#666666"/>
+
+                        <Border BorderBrush="#333333" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,12,0,0">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Push-to-Talk (hold to talk)" FontSize="12" Foreground="#888888" FontWeight="SemiBold"/>
+                                <ComboBox x:Name="PushToTalkKeysBox" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                    <ComboBoxItem Content="Right Option + Right Shift" Tag="RightOption+RightShift"/>
+                                    <ComboBoxItem Content="Right Control + Right Shift" Tag="RightControl+RightShift"/>
+                                    <ComboBoxItem Content="Right Command + Right Shift" Tag="RightCommand+RightShift"/>
+                                    <ComboBoxItem Content="Right Option + Right Command" Tag="RightOption+RightCommand"/>
+                                    <ComboBoxItem Content="Left Control + Left Shift" Tag="LeftControl+LeftShift"/>
+                                    <ComboBoxItem Content="Right Option (alone)" Tag="RightOption"/>
+                                    <ComboBoxItem Content="Right Command (alone)" Tag="RightCommand"/>
+                                    <ComboBoxItem Content="Right Control (alone)" Tag="RightControl"/>
+                                    <ComboBoxItem Content="Fn (globe)" Tag="Fn"/>
+                                </ComboBox>
+                                <TextBlock Text="Hold these keys to record, release to transcribe. Modifier keys only (they don't type characters). Requires Input Monitoring permission. Changes require restart."
+                                           FontSize="10" Foreground="#666666" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

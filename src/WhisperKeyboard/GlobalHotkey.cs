@@ -844,13 +844,46 @@ public class PushToTalkHook : IPushToTalkHook
     private const int WM_SYSKEYUP = 0x0105;
     private const int WM_QUIT = 0x0012;
 
-    private const uint VK_RCONTROL = 0xA3;
+    private const uint VK_LSHIFT = 0xA0;
     private const uint VK_RSHIFT = 0xA1;
+    private const uint VK_LCONTROL = 0xA2;
+    private const uint VK_RCONTROL = 0xA3;
+    private const uint VK_LMENU = 0xA4; // Left Alt
+    private const uint VK_RMENU = 0xA5; // Right Alt
+    private const uint VK_LWIN = 0x5B;
+    private const uint VK_RWIN = 0x5C;
+
+    /// <summary>
+    /// Parse a "+"-joined push-to-talk key spec into the set of Windows virtual key
+    /// codes that must all be held. Falls back to Right Ctrl + Right Shift.
+    /// (Fn has no Windows virtual key code and is ignored here.)
+    /// </summary>
+    private static uint[] ParseVks(string? keys)
+    {
+        var vks = new List<uint>();
+        foreach (var raw in (keys ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            switch (raw.ToLowerInvariant())
+            {
+                case "leftcontrol": case "leftctrl": case "lctrl": vks.Add(VK_LCONTROL); break;
+                case "rightcontrol": case "rightctrl": case "rctrl": vks.Add(VK_RCONTROL); break;
+                case "leftshift": case "lshift": vks.Add(VK_LSHIFT); break;
+                case "rightshift": case "rshift": vks.Add(VK_RSHIFT); break;
+                case "leftoption": case "leftalt": case "lalt": case "loption": vks.Add(VK_LMENU); break;
+                case "rightoption": case "rightalt": case "ralt": case "roption": vks.Add(VK_RMENU); break;
+                case "leftcommand": case "leftcmd": case "lcmd": case "leftwin": vks.Add(VK_LWIN); break;
+                case "rightcommand": case "rightcmd": case "rcmd": case "rightwin": vks.Add(VK_RWIN); break;
+            }
+        }
+        if (vks.Count == 0) { vks.Add(VK_RCONTROL); vks.Add(VK_RSHIFT); }
+        return vks.ToArray();
+    }
 
     private IntPtr _hookId = IntPtr.Zero;
     private LowLevelKeyboardProc? _proc;
-    private bool _rCtrlDown;
-    private bool _rShiftDown;
+    private readonly uint[] _requiredVks;
+    private readonly HashSet<uint> _pressed = new();
+    private readonly string _keysLabel;
     private bool _isActive;
     private bool _disposed;
     private Thread? _hookThread;
@@ -860,8 +893,11 @@ public class PushToTalkHook : IPushToTalkHook
     public event Action? Started;
     public event Action? Stopped;
 
-    public PushToTalkHook()
+    public PushToTalkHook(string? keys = null)
     {
+        _requiredVks = ParseVks(keys);
+        _keysLabel = string.IsNullOrWhiteSpace(keys) ? "RightControl+RightShift" : keys!.Trim();
+
         if (!OperatingSystem.IsWindows())
         {
             Console.WriteLine("Push-to-Talk hook is only supported on Windows");
@@ -899,7 +935,7 @@ public class PushToTalkHook : IPushToTalkHook
                 return;
             }
 
-            Console.WriteLine("Push-to-Talk keyboard hook installed (Right Ctrl + Right Shift)");
+            Console.WriteLine($"Push-to-Talk keyboard hook installed (keys: {_keysLabel})");
             _hookReady.Set();
 
             // Message pump - required for WH_KEYBOARD_LL to work
@@ -926,18 +962,14 @@ public class PushToTalkHook : IPushToTalkHook
             bool isDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
             bool isUp = msg == WM_KEYUP || msg == WM_SYSKEYUP;
 
-            if (hookStruct.vkCode == VK_RCONTROL)
+            if (Array.IndexOf(_requiredVks, hookStruct.vkCode) >= 0)
             {
-                if (isDown) _rCtrlDown = true;
-                else if (isUp) _rCtrlDown = false;
-            }
-            else if (hookStruct.vkCode == VK_RSHIFT)
-            {
-                if (isDown) _rShiftDown = true;
-                else if (isUp) _rShiftDown = false;
+                if (isDown) _pressed.Add(hookStruct.vkCode);
+                else if (isUp) _pressed.Remove(hookStruct.vkCode);
             }
 
-            bool bothDown = _rCtrlDown && _rShiftDown;
+            bool bothDown = _requiredVks.Length > 0 && _pressed.Count >= _requiredVks.Length
+                            && Array.TrueForAll(_requiredVks, _pressed.Contains);
 
             if (bothDown && !_isActive)
             {
@@ -1049,8 +1081,46 @@ public class PushToTalkHookMacOS : IPushToTalkHook
 
     // Device-dependent modifier flags (IOKit NX_DEVICE* masks)
     // These distinguish left vs right modifier keys directly from CGEventGetFlags.
+    private const ulong NX_DEVICELCTLKEYMASK   = 0x00000001;
+    private const ulong NX_DEVICELSHIFTKEYMASK = 0x00000002;
     private const ulong NX_DEVICERSHIFTKEYMASK = 0x00000004;
+    private const ulong NX_DEVICELCMDKEYMASK   = 0x00000008;
+    private const ulong NX_DEVICERCMDKEYMASK   = 0x00000010;
+    private const ulong NX_DEVICELALTKEYMASK   = 0x00000020;
     private const ulong NX_DEVICERALTKEYMASK   = 0x00000040;
+    private const ulong NX_DEVICERCTLKEYMASK   = 0x00002000;
+    private const ulong NX_SECONDARYFNMASK     = 0x00800000; // Fn key (general CGEvent flag)
+
+    /// <summary>
+    /// Parse a "+"-joined push-to-talk key spec (e.g. "RightOption+RightShift", "Fn")
+    /// into the set of device-dependent flag masks that must all be present.
+    /// Falls back to Right Option + Right Shift when the spec is empty/unparseable.
+    /// </summary>
+    private static ulong[] ParseMasks(string? keys)
+    {
+        var masks = new List<ulong>();
+        foreach (var raw in (keys ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            switch (raw.ToLowerInvariant())
+            {
+                case "leftcontrol": case "leftctrl": case "lctrl": masks.Add(NX_DEVICELCTLKEYMASK); break;
+                case "rightcontrol": case "rightctrl": case "rctrl": masks.Add(NX_DEVICERCTLKEYMASK); break;
+                case "leftshift": case "lshift": masks.Add(NX_DEVICELSHIFTKEYMASK); break;
+                case "rightshift": case "rshift": masks.Add(NX_DEVICERSHIFTKEYMASK); break;
+                case "leftoption": case "leftalt": case "lalt": case "loption": masks.Add(NX_DEVICELALTKEYMASK); break;
+                case "rightoption": case "rightalt": case "ralt": case "roption": masks.Add(NX_DEVICERALTKEYMASK); break;
+                case "leftcommand": case "leftcmd": case "lcmd": masks.Add(NX_DEVICELCMDKEYMASK); break;
+                case "rightcommand": case "rightcmd": case "rcmd": masks.Add(NX_DEVICERCMDKEYMASK); break;
+                case "fn": masks.Add(NX_SECONDARYFNMASK); break;
+            }
+        }
+        if (masks.Count == 0)
+        {
+            masks.Add(NX_DEVICERALTKEYMASK);
+            masks.Add(NX_DEVICERSHIFTKEYMASK);
+        }
+        return masks.ToArray();
+    }
 
     // CFString encoding
     private const int kCFStringEncodingUTF8 = 0x08000100;
@@ -1069,11 +1139,18 @@ public class PushToTalkHookMacOS : IPushToTalkHook
     // Activation state
     private bool _isActive;
 
+    // Device-dependent masks that must ALL be present in the event flags to activate.
+    private readonly ulong[] _requiredMasks;
+    private readonly string _keysLabel;
+
     public event Action? Started;
     public event Action? Stopped;
 
-    public PushToTalkHookMacOS()
+    public PushToTalkHookMacOS(string? keys = null)
     {
+        _requiredMasks = ParseMasks(keys);
+        _keysLabel = string.IsNullOrWhiteSpace(keys) ? "RightOption+RightShift" : keys!.Trim();
+
         if (!OperatingSystem.IsMacOS())
         {
             Console.WriteLine("PushToTalkHookMacOS is only supported on macOS");
@@ -1146,7 +1223,7 @@ public class PushToTalkHookMacOS : IPushToTalkHook
             CGEventTapEnable(_eventTap, true);
             CFRelease(modeStr);
 
-            Console.WriteLine("Push-to-Talk event tap installed (macOS, Right Option + Right Shift)");
+            Console.WriteLine($"Push-to-Talk event tap installed (macOS, keys: {_keysLabel})");
             _hookReady.Set();
 
             var modeHandle = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
@@ -1188,8 +1265,11 @@ public class PushToTalkHookMacOS : IPushToTalkHook
         // tracking state via keyCode, which macOS doesn't always report
         // correctly for modifier key releases.
         ulong flags = CGEventGetFlags(eventRef);
-        bool bothDown = (flags & NX_DEVICERALTKEYMASK) != 0
-                     && (flags & NX_DEVICERSHIFTKEYMASK) != 0;
+        bool bothDown = true;
+        foreach (var mask in _requiredMasks)
+        {
+            if ((flags & mask) == 0) { bothDown = false; break; }
+        }
 
         if (bothDown && !_isActive)
         {
