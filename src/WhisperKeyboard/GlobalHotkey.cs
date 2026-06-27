@@ -463,6 +463,9 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
     private static extern void CFRunLoopRun();
 
     [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    private static extern int CFRunLoopRunInMode(IntPtr mode, double seconds, bool returnAfterSourceHandled);
+
+    [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
     private static extern void CFRunLoopStop(IntPtr rl);
 
     [DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
@@ -550,30 +553,70 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
             // Get the current thread's run loop
             _runLoop = CFRunLoopGetCurrent();
 
-            // Get the default mode string
-            var modesPtr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100); // kCFStringEncodingUTF8
+            // Get the default mode string (kept alive for the lifetime of the loop)
+            var modeHandle = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100); // kCFStringEncodingUTF8
 
-            CFRunLoopAddSource(_runLoop, _runLoopSource, modesPtr);
+            CFRunLoopAddSource(_runLoop, _runLoopSource, modeHandle);
             CGEventTapEnable(_eventTap, true);
-
-            CFRelease(modesPtr);
 
             Console.WriteLine("Global hotkey event tap installed successfully");
 
             // Signal that the event tap is ready
             _eventTapReady.Set();
 
-            // Run the loop - this blocks until CFRunLoopStop is called
+            // Run the loop with a bounded timeout rather than CFRunLoopRun(), which
+            // returns instantly and busy-spins at 100% CPU if the tap's run loop
+            // source is ever removed (e.g. when macOS disables the tap). Re-enable
+            // the tap each wake-up so a disabled tap recovers even if the callback
+            // never fires.
             while (!_stopRequested)
             {
-                CFRunLoopRun();
+                CFRunLoopRunInMode(modeHandle, 1.0, false);
+                if (!_stopRequested && _eventTap != IntPtr.Zero)
+                    CGEventTapEnable(_eventTap, true);
             }
+
+            CFRelease(modeHandle);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error in hotkey thread: {ex.Message}");
-            _eventTapReady.Set(); // Signal anyway so callers don't hang
         }
+        finally
+        {
+            // Tear down CoreFoundation objects on the SAME thread that owns the run
+            // loop, before this thread (and therefore its CFRunLoop) is destroyed.
+            // Doing this from Dispose() on another thread dereferences a freed
+            // CFRunLoop and traps forever in __CFCheckCFInfoPACSignature.
+            TeardownEventTap();
+
+            // Always signal readiness so Register()/callers never block on failure.
+            _eventTapReady.Set();
+        }
+    }
+
+    private void TeardownEventTap()
+    {
+        if (_eventTap != IntPtr.Zero)
+            CGEventTapEnable(_eventTap, false);
+
+        if (_runLoopSource != IntPtr.Zero)
+        {
+            var modeHandle = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100);
+            if (_runLoop != IntPtr.Zero)
+                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modeHandle);
+            CFRelease(modeHandle);
+            CFRelease(_runLoopSource);
+            _runLoopSource = IntPtr.Zero;
+        }
+
+        if (_eventTap != IntPtr.Zero)
+        {
+            CFRelease(_eventTap);
+            _eventTap = IntPtr.Zero;
+        }
+
+        _runLoop = IntPtr.Zero;
     }
 
     private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
@@ -735,35 +778,20 @@ internal class MacOSGlobalHotkey : IGlobalHotkeyImpl
         UnregisterAll();
         _stopRequested = true;
 
-        // Stop the run loop
+        // Stop the run loop. CFRunLoopStop is safe to call cross-thread while the
+        // loop is still alive (it is here, before the Join). The run loop thread
+        // then releases every CoreFoundation object itself in its finally block.
+        // Tearing those down here instead would operate on a freed CFRunLoop once
+        // the thread exits and hang forever in __CFCheckCFInfoPACSignature.
         if (_runLoop != IntPtr.Zero)
         {
             CFRunLoopStop(_runLoop);
         }
 
-        // Wait for thread to finish
+        // Wait for the thread to finish (and complete its own teardown).
         if (_runLoopThread != null && _runLoopThread.IsAlive)
         {
             _runLoopThread.Join(3000);
-        }
-
-        if (_runLoopSource != IntPtr.Zero)
-        {
-            var modesPtr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, 0x08000100);
-            if (_runLoop != IntPtr.Zero)
-            {
-                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modesPtr);
-            }
-            CFRelease(modesPtr);
-            CFRelease(_runLoopSource);
-            _runLoopSource = IntPtr.Zero;
-        }
-
-        if (_eventTap != IntPtr.Zero)
-        {
-            CGEventTapEnable(_eventTap, false);
-            CFRelease(_eventTap);
-            _eventTap = IntPtr.Zero;
         }
 
         _eventTapReady.Dispose();
@@ -1233,7 +1261,7 @@ public class PushToTalkHookMacOS : IPushToTalkHook
                 // if macOS disabled it due to timeout
                 CFRunLoopRunInMode(modeHandle, 2.0, false);
 
-                if (_eventTap != IntPtr.Zero)
+                if (!_stopRequested && _eventTap != IntPtr.Zero)
                     CGEventTapEnable(_eventTap, true);
             }
             CFRelease(modeHandle);
@@ -1241,8 +1269,42 @@ public class PushToTalkHookMacOS : IPushToTalkHook
         catch (Exception ex)
         {
             Console.WriteLine($"Error in macOS PTT hook thread: {ex.Message}");
+        }
+        finally
+        {
+            // Release CoreFoundation objects on the SAME thread that owns the run
+            // loop, before the thread (and its CFRunLoop) goes away. Doing this from
+            // Dispose() on another thread dereferences a freed CFRunLoop and traps
+            // forever in __CFCheckCFInfoPACSignature.
+            TeardownEventTap();
+
+            // Always signal readiness so the constructor never blocks on failure.
             _hookReady.Set();
         }
+    }
+
+    private void TeardownEventTap()
+    {
+        if (_eventTap != IntPtr.Zero)
+            CGEventTapEnable(_eventTap, false);
+
+        if (_runLoopSource != IntPtr.Zero)
+        {
+            var modeStr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
+            if (_runLoop != IntPtr.Zero)
+                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modeStr);
+            CFRelease(modeStr);
+            CFRelease(_runLoopSource);
+            _runLoopSource = IntPtr.Zero;
+        }
+
+        if (_eventTap != IntPtr.Zero)
+        {
+            CFRelease(_eventTap);
+            _eventTap = IntPtr.Zero;
+        }
+
+        _runLoop = IntPtr.Zero;
     }
 
     private IntPtr EventTapCallback(IntPtr proxy, int type, IntPtr eventRef, IntPtr userInfo)
@@ -1300,6 +1362,11 @@ public class PushToTalkHookMacOS : IPushToTalkHook
 
         _stopRequested = true;
 
+        // Stop the run loop. CFRunLoopStop is safe cross-thread while the loop is
+        // still alive (it is here, before the Join). The run loop thread releases
+        // every CoreFoundation object itself in its finally block; doing it here
+        // would operate on a freed CFRunLoop once the thread exits and hang forever
+        // in __CFCheckCFInfoPACSignature.
         if (_runLoop != IntPtr.Zero)
         {
             CFRunLoopStop(_runLoop);
@@ -1307,25 +1374,6 @@ public class PushToTalkHookMacOS : IPushToTalkHook
 
         // Join timeout must exceed CFRunLoopRunInMode timeout (2s)
         _runLoopThread?.Join(3000);
-
-        if (_runLoopSource != IntPtr.Zero)
-        {
-            var modeStr = CFStringCreateWithCString(IntPtr.Zero, kCFRunLoopDefaultMode, kCFStringEncodingUTF8);
-            if (_runLoop != IntPtr.Zero)
-            {
-                CFRunLoopRemoveSource(_runLoop, _runLoopSource, modeStr);
-            }
-            CFRelease(modeStr);
-            CFRelease(_runLoopSource);
-            _runLoopSource = IntPtr.Zero;
-        }
-
-        if (_eventTap != IntPtr.Zero)
-        {
-            CGEventTapEnable(_eventTap, false);
-            CFRelease(_eventTap);
-            _eventTap = IntPtr.Zero;
-        }
 
         _hookReady.Dispose();
     }
